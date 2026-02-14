@@ -1,1 +1,6 @@
-streamlit
+streamstreamlit
+pandas
+plotly
+openpyxl
+scikit-learn
+numpylit
