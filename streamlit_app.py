@@ -1,5 +1,6 @@
 import streamlit as st
-st.title("🎈Mohamed Morgan Creations ")
+st.title("Modenr AI Dashboard
+Mohamed Morgan Apps ")
 import streamlit as st
 import pandas as pd
 import numpy as np
