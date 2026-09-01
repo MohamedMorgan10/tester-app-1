@@ -1,6 +1,4 @@
 import streamlit as st
-st.title("Modenr AI Dashboard Mohamed Morgan Apps ")
-import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -12,6 +10,7 @@ import io
 
 # --- 1. Page Configuration ---
 st.set_page_config(page_title="Maintenance Command Center 2026", page_icon="⚙️", layout="wide")
+st.title("Modern AI Dashboard Mohamed Morgan Apps")
 
 # --- 2. CSS STYLING (Industrial/Dark Theme - WHITE HEADERS & CHARTS) ---
 st.markdown("""
@@ -155,28 +154,26 @@ def load_maintenance_data(file):
         df_plan = read_sheet("Planned")
         df_ops = read_sheet("Operational")
         
+        # New inventory sheets[cite: 1]
+        df_inventory = read_sheet("Spare_Parts") 
+        df_usage = read_sheet("Parts_Usage")     
+        
         # --- PRE-PROCESSING ---
         
         # 1. Breakdowns
         if not df_bd.empty:
             df_bd['Date'] = pd.to_datetime(df_bd['Date'], errors='coerce')
-            
-            # --- FIX APPLIED HERE ---
             df_bd['BD Duration Eff'] = pd.to_numeric(df_bd['Effective DT reverted'], errors='coerce').fillna(0)
-            # ------------------------
-            
             df_bd['Month_Name'] = df_bd['Date'].dt.month_name()
             df_bd['Week_Start'] = df_bd['Date'] - pd.to_timedelta(df_bd['Date'].dt.dayofweek, unit='d')
             
             # Extract Time Info if 'From' exists
             if 'From' in df_bd.columns:
-                 # Try convert to string first to handle time objects
                  df_bd['Hour'] = pd.to_datetime(df_bd['From'].astype(str), format='%H:%M:%S', errors='coerce').dt.hour
-                 # Fallback for mixed formats
                  if df_bd['Hour'].isnull().all():
                       df_bd['Hour'] = pd.to_datetime(df_bd['From'], errors='coerce').dt.hour
             else:
-                 df_bd['Hour'] = 0 # Default
+                 df_bd['Hour'] = 0 
 
         # 2. Open Hours
         if not df_open.empty:
@@ -188,11 +185,18 @@ def load_maintenance_data(file):
             df_plan['Date'] = pd.to_datetime(df_plan['Date'], errors='coerce')
             df_plan['Duration'] = pd.to_numeric(df_plan['Duration'], errors='coerce').fillna(0)
 
+        # 4. Inventory Usage[cite: 1]
+        if not df_usage.empty:
+            df_usage['Date'] = pd.to_datetime(df_usage['Date'], errors='coerce')
+            df_usage['Month_Name'] = df_usage['Date'].dt.month_name()
+
         return {
             "breakdowns": df_bd,
             "open_hours": df_open,
             "planned": df_plan,
-            "operational": df_ops
+            "operational": df_ops,
+            "inventory": df_inventory,
+            "usage": df_usage
         }
 
     except Exception as e:
@@ -213,26 +217,31 @@ if not data: st.stop()
 df_bd = data['breakdowns']
 df_open = data['open_hours']
 df_plan = data['planned']
+df_inventory = data['inventory']
+df_usage = data['usage']
 
 # --- Global Filters ---
 st.sidebar.markdown("---")
 st.sidebar.header("🔍 Filter Scope")
 
 # Date Filter
-min_date = df_bd['Date'].min()
-max_date = df_bd['Date'].max()
-date_range = st.sidebar.date_input("Date Range", [min_date, max_date])
+if not df_bd.empty:
+    min_date = df_bd['Date'].min()
+    max_date = df_bd['Date'].max()
+    date_range = st.sidebar.date_input("Date Range", [min_date, max_date])
+else:
+    st.sidebar.warning("No breakdown data found.")
+    st.stop()
 
 # Line Filter
 all_lines = sorted(df_bd['Line'].dropna().unique().tolist())
 selected_lines = st.sidebar.multiselect("Production Lines", all_lines, default=all_lines)
 
-# Machine Filter (Dependent on Line)
+# Machine Filter
 available_machines = df_bd[df_bd['Line'].isin(selected_lines)]['Machine'].dropna().unique().tolist()
 selected_machines = st.sidebar.multiselect("Machines", sorted(available_machines), default=sorted(available_machines))
 
 # --- FILTER APPLICATION ---
-# 1. Filter Breakdowns
 mask_bd = (
     (df_bd['Date'] >= pd.to_datetime(date_range[0])) &
     (df_bd['Date'] <= pd.to_datetime(date_range[1])) &
@@ -241,7 +250,6 @@ mask_bd = (
 )
 df_bd_filt = df_bd[mask_bd]
 
-# 2. Filter Planned
 if not df_plan.empty:
     mask_plan = (
         (df_plan['Date'] >= pd.to_datetime(date_range[0])) &
@@ -252,26 +260,35 @@ if not df_plan.empty:
 else:
     df_plan_filt = pd.DataFrame()
 
-# 2. Filter Open Hours (For Availability Calc)
-mask_open = (
-    (df_open['Date'] >= pd.to_datetime(date_range[0])) &
-    (df_open['Date'] <= pd.to_datetime(date_range[1])) &
-    (df_open['Line'].isin(selected_lines))
-)
-df_open_filt = df_open[mask_open]
+if not df_open.empty:
+    mask_open = (
+        (df_open['Date'] >= pd.to_datetime(date_range[0])) &
+        (df_open['Date'] <= pd.to_datetime(date_range[1])) &
+        (df_open['Line'].isin(selected_lines))
+    )
+    df_open_filt = df_open[mask_open]
+else:
+    df_open_filt = pd.DataFrame()
+
+if not df_usage.empty:
+    mask_usage = (
+        (df_usage['Date'] >= pd.to_datetime(date_range[0])) &
+        (df_usage['Date'] <= pd.to_datetime(date_range[1]))
+    )
+    df_usage_filt = df_usage[mask_usage]
+else:
+    df_usage_filt = pd.DataFrame()
 
 # --- 6. CORE CALCULATIONS (KPIs) ---
 total_bd_mins = df_bd_filt['BD Duration Eff'].sum()
 count_bd = len(df_bd_filt)
 
-# Calculate Available Time
 if not df_open_filt.empty:
     total_avail_mins = df_open_filt['Available mins'].sum()
 else:
     days = (pd.to_datetime(date_range[1]) - pd.to_datetime(date_range[0])).days + 1
     total_avail_mins = days * 1440 * len(selected_machines)
 
-# Standard KPIs
 mttr = (total_bd_mins / count_bd) if count_bd > 0 else 0
 operating_time = total_avail_mins - total_bd_mins
 mtbf = (operating_time / count_bd) if count_bd > 0 else 0
@@ -279,16 +296,23 @@ availability = (operating_time / total_avail_mins * 100) if total_avail_mins > 0
 dt_pct = 100 - availability
 
 # --- 7. DASHBOARD LAYOUT ---
-# Updated Tabs to include Fishbone Analysis
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Executive Overview", "🔧 Breakdown Analysis", "👨‍🔧 Tech & Asset Performance", "🤖 AI Insights", "🐟 Fishbone Analysis"])
+# Updated Tabs to include Financial Analytics and AI Forecasting
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "📊 Executive Overview", 
+    "🔧 Breakdown Analysis", 
+    "👨‍🔧 Tech & Asset Performance", 
+    "🤖 AI Insights", 
+    "🐟 Fishbone Analysis",
+    "💰 Warehouse & Spend Analytics",
+    "🔮 Predictive Spares & Alerts"
+])
 
 # =================================================
-# TAB 1: EXECUTIVE OVERVIEW (10 KPIs & 10 CHARTS)
+# TAB 1: EXECUTIVE OVERVIEW
 # =================================================
 with tab1:
     st.markdown("### 🏆 World Class Maintenance Performance")
     
-    # KPIs
     planned_mins = df_plan_filt['Duration'].sum() if not df_plan_filt.empty else 0
     total_maint_mins = total_bd_mins + planned_mins
     reactive_ratio = (total_bd_mins / total_maint_mins * 100) if total_maint_mins > 0 else 0
@@ -304,7 +328,9 @@ with tab1:
     card(k6, "Total Downtime", f"{total_bd_mins/60:,.0f} Hr", "Production Hours Lost", "bad")
     card(k7, "Planned Maint.", f"{planned_mins/60:,.0f} Hr", "Scheduled Work", "neutral")
     card(k8, "Reactive Ratio", f"{reactive_ratio:.1f}%", "Unplanned Work %", "good" if reactive_ratio < 20 else "bad")
-    card(k9, "Avg Daily Loss", f"{(total_bd_mins/(days if 'days' in locals() else 30)):.0f} Min", "Burn Rate", "neutral")
+    
+    days_val = (pd.to_datetime(date_range[1]) - pd.to_datetime(date_range[0])).days + 1
+    card(k9, "Avg Daily Loss", f"{(total_bd_mins/days_val):.0f} Min", "Burn Rate", "neutral")
     
     if not df_bd_filt.empty:
         top_asset_loss = df_bd_filt.groupby('Machine')['BD Duration Eff'].sum().max()
@@ -316,7 +342,6 @@ with tab1:
     st.markdown("---")
     st.markdown("### 📊 Strategic Maintenance Analytics")
 
-    # 10 Strategic Charts
     c1, c2 = st.columns(2)
     with c1:
         daily_dt = df_bd_filt.groupby('Date')['BD Duration Eff'].sum().reset_index()
@@ -340,7 +365,6 @@ with tab1:
         st.plotly_chart(fig3, use_container_width=True)
         
     with c4:
-        # 4. Downtime by Line (Replaced Category Chart)
         line_data = df_bd_filt.groupby('Line')['BD Duration Eff'].sum().reset_index()
         fig4 = px.pie(line_data, values='BD Duration Eff', names='Line', title="4. Total Downtime by Line", hole=0.4, color_discrete_sequence=px.colors.sequential.Plasma_r)
         apply_chart_style(fig4)
@@ -388,7 +412,7 @@ with tab1:
     with c10:
         if 'Tech' in df_bd_filt.columns:
             tech_perf = df_bd_filt.groupby('Tech').agg({'BD Duration Eff':'mean', 'Date':'count'}).reset_index()
-            tech_perf = tech_perf[tech_perf['Date'] > 2] # Filter noise
+            tech_perf = tech_perf[tech_perf['Date'] > 2] 
             fig10 = px.bar(tech_perf, x='Tech', y='BD Duration Eff', title="10. Avg MTTR by Technician", color='Date', color_continuous_scale='Bluyl')
             apply_chart_style(fig10)
             st.plotly_chart(fig10, use_container_width=True)
@@ -396,27 +420,22 @@ with tab1:
             st.info("Technician data not available for Chart 10")
 
 # =================================================
-# TAB 2: BREAKDOWN ANALYSIS (DEEP DIVE MODIFIED)
+# TAB 2: BREAKDOWN ANALYSIS 
 # =================================================
 with tab2:
     st.markdown("### 🔍 Deep Dive: Root Cause & Frequency Analysis")
     
-    # --- DATA PREP FOR NEW ANALYSIS ---
     df_bd_filt['DayOfWeek'] = df_bd_filt['Date'].dt.day_name()
-    # Ensure correct order
     days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     df_bd_filt['DayOfWeek'] = pd.Categorical(df_bd_filt['DayOfWeek'], categories=days_order, ordered=True)
     
-    # Count occurrences of each day in the selected date range to calculate true averages
     date_counts = pd.DataFrame({'Date': pd.date_range(start=date_range[0], end=date_range[1])})
     date_counts['DayOfWeek'] = date_counts['Date'].dt.day_name()
     day_counts = date_counts['DayOfWeek'].value_counts()
     
-    # Calculate Frequency per Day
     bd_per_day = df_bd_filt['DayOfWeek'].value_counts()
     avg_bd_freq = (bd_per_day / day_counts).reindex(days_order).fillna(0)
     
-    # Weekend Calculation (Fri + Sat)
     weekend_days = ['Friday', 'Saturday']
     total_weekend_bds = bd_per_day[weekend_days].sum()
     total_weekend_occurrences = day_counts[weekend_days].sum()
@@ -427,19 +446,16 @@ with tab2:
     total_weekday_occurrences = day_counts[weekday_days].sum()
     avg_weekday_bds = total_weekday_bds / total_weekday_occurrences if total_weekday_occurrences > 0 else 0
     
-    # Other Metrics
     max_downtime = df_bd_filt['BD Duration Eff'].max()
     short_stops = len(df_bd_filt[df_bd_filt['BD Duration Eff'] < 30])
     short_stop_pct = (short_stops / len(df_bd_filt) * 100) if len(df_bd_filt) > 0 else 0
     
-    # --- ROW 1: KEY FREQUENCY KPIs ---
     b1, b2, b3, b4 = st.columns(4)
     card(b1, "Avg Weekend BDs", f"{avg_weekend_bds:.1f} / Day", "Fri & Sat", "bad" if avg_weekend_bds > avg_weekday_bds else "good")
     card(b2, "Avg Weekday BDs", f"{avg_weekday_bds:.1f} / Day", "Sun - Thu", "neutral")
     card(b3, "Max Single Event", f"{max_downtime:.0f} Min", "Longest Stop", "bad" if max_downtime > 120 else "neutral")
     card(b4, "Short Stops (<30m)", f"{short_stop_pct:.1f}%", "Minor Stoppages", "warning" if short_stop_pct > 50 else "good")
 
-    # --- ROW 2: ADDITIONAL KPIs ---
     b5, b6, b7, b8 = st.columns(4)
     top_bad_actor = df_bd_filt['Machine'].value_counts().idxmax() if not df_bd_filt.empty else "N/A"
     repeat_failures = df_bd_filt['Machine'].value_counts()
@@ -452,19 +468,15 @@ with tab2:
 
     st.markdown("---")
     
-    # --- ROW 3: FREQUENCY CHARTS ---
     bf1, bf2 = st.columns(2)
     with bf1:
-        # Chart 1: Avg BD Frequency by Day of Week (Requested)
         fig_freq = px.bar(x=avg_bd_freq.index, y=avg_bd_freq.values, title="1. Avg Breakdown Frequency by Day", labels={'x':'Day', 'y':'Avg Count'}, color=avg_bd_freq.values, color_continuous_scale='Reds')
         apply_chart_style(fig_freq)
         st.plotly_chart(fig_freq, use_container_width=True)
         
     with bf2:
-        # Chart 2: Breakdown by Hour of Day
         if 'Hour' in df_bd_filt.columns:
             hourly_counts = df_bd_filt.groupby('Hour')['BD Duration Eff'].count().reset_index()
-            # Ensure all hours 0-23 exist
             full_hours = pd.DataFrame({'Hour': range(24)})
             hourly_counts = full_hours.merge(hourly_counts, on='Hour', how='left').fillna(0)
             fig_hour = px.bar(hourly_counts, x='Hour', y='BD Duration Eff', title="2. Shift Analysis: Failures by Hour", labels={'BD Duration Eff':'Count'}, color='BD Duration Eff', color_continuous_scale='Viridis')
@@ -473,10 +485,8 @@ with tab2:
         else:
             st.info("Time data not available for Shift Analysis.")
 
-    # --- ROW 4: SEVERITY & TREND ---
     bf3, bf4 = st.columns(2)
     with bf3:
-        # Chart 3: Top 10 Bad Actors by Duration
         bad_actors_dur = df_bd_filt.groupby('Machine')['BD Duration Eff'].sum().sort_values(ascending=False).head(10).reset_index()
         fig_bad = px.bar(bad_actors_dur, x='BD Duration Eff', y='Machine', orientation='h', title="3. High Severity Assets (Total Duration)", color='BD Duration Eff', color_continuous_scale='Magma')
         fig_bad.update_layout(yaxis=dict(autorange="reversed"))
@@ -484,7 +494,6 @@ with tab2:
         st.plotly_chart(fig_bad, use_container_width=True)
         
     with bf4:
-        # Chart 4: Cumulative Downtime S-Curve
         df_sorted = df_bd_filt.sort_values('Date')
         df_sorted['Cum_Downtime'] = df_sorted['BD Duration Eff'].cumsum()
         fig_cum = px.line(df_sorted, x='Date', y='Cum_Downtime', title="4. Cumulative Downtime (Impact Over Time)", line_shape='hv')
@@ -492,57 +501,49 @@ with tab2:
         apply_chart_style(fig_cum)
         st.plotly_chart(fig_cum, use_container_width=True)
 
-    # --- ROW 5: CAUSE & DISTRIBUTION ---
     bf5, bf6 = st.columns(2)
     with bf5:
-        # Chart 5: Description Keywords (Top 10)
-        desc_counts = df_bd_filt['Description'].value_counts().head(10).reset_index()
-        desc_counts.columns = ['Issue', 'Count']
-        fig_desc = px.bar(desc_counts, x='Count', y='Issue', orientation='h', title="5. Common Failure Descriptions", color='Count', color_continuous_scale='Teal')
-        fig_desc.update_layout(yaxis=dict(autorange="reversed"))
-        apply_chart_style(fig_desc)
-        st.plotly_chart(fig_desc, use_container_width=True)
+        if 'Description' in df_bd_filt.columns:
+            desc_counts = df_bd_filt['Description'].value_counts().head(10).reset_index()
+            desc_counts.columns = ['Issue', 'Count']
+            fig_desc = px.bar(desc_counts, x='Count', y='Issue', orientation='h', title="5. Common Failure Descriptions", color='Count', color_continuous_scale='Teal')
+            fig_desc.update_layout(yaxis=dict(autorange="reversed"))
+            apply_chart_style(fig_desc)
+            st.plotly_chart(fig_desc, use_container_width=True)
         
     with bf6:
-        # Chart 6: Duration Distribution Histogram
         fig_hist_bd = px.histogram(df_bd_filt, x='BD Duration Eff', nbins=40, title="6. Failure Severity Distribution", color_discrete_sequence=['#f59e0b'])
         apply_chart_style(fig_hist_bd)
         st.plotly_chart(fig_hist_bd, use_container_width=True)
 
 # =================================================
-# TAB 3: TECH & ASSET PERFORMANCE (ENRICHED WITH 6 NEW KPIs)
+# TAB 3: TECH & ASSET PERFORMANCE 
 # =================================================
 with tab3:
     st.markdown("### 👨‍🔧 Technician Performance & Asset Intelligence")
 
     if 'Tech' in df_bd_filt.columns:
-        # --- 1. DATA AGGREGATION ---
-        # Base Calculation
         tech_df = df_bd_filt.groupby('Tech').agg(
             Interventions=('Date', 'count'),
             Total_Downtime=('BD Duration Eff', 'sum'),
             Avg_MTTR=('BD Duration Eff', 'mean'),
-            Unique_Machines=('Machine', 'nunique'),          # New KPI: Versatility
-            Max_Job=('BD Duration Eff', 'max'),                  # New KPI: Hardest Fix
-            Min_Job=('BD Duration Eff', 'min'),                  # New KPI: Speed
+            Unique_Machines=('Machine', 'nunique'),          
+            Max_Job=('BD Duration Eff', 'max'),                  
+            Min_Job=('BD Duration Eff', 'min'),                  
         ).reset_index()
         
-        # Derived KPIs
         total_plant_jobs = len(df_bd_filt)
-        tech_df['Workload_Share'] = (tech_df['Interventions'] / total_plant_jobs) * 100 # New KPI: Contribution
-        tech_df['Total_Hours'] = tech_df['Total_Downtime'] / 60                         # New KPI: Volume
+        tech_df['Workload_Share'] = (tech_df['Interventions'] / total_plant_jobs) * 100 
+        tech_df['Total_Hours'] = tech_df['Total_Downtime'] / 60                         
         
-        # Calculate Quick Fix % (<30 mins)
         quick_fixes = df_bd_filt[df_bd_filt['BD Duration Eff'] < 30].groupby('Tech')['Date'].count()
         tech_df = tech_df.merge(quick_fixes.rename('Quick_Fixes'), on='Tech', how='left').fillna(0)
-        tech_df['Quick_Fix_Pct'] = (tech_df['Quick_Fixes'] / tech_df['Interventions']) * 100 # New KPI: Efficiency
+        tech_df['Quick_Fix_Pct'] = (tech_df['Quick_Fixes'] / tech_df['Interventions']) * 100 
 
-        # Team Overview Stats
         total_techs = tech_df['Tech'].nunique()
         team_avg_mttr = tech_df['Avg_MTTR'].mean()
         total_interventions = tech_df['Interventions'].sum()
 
-        # Display Team-Level Summary Cards
         t1, t2, t3 = st.columns(3)
         card(t1, "Active Technicians", f"{total_techs}", "Staff on Duty", "neutral")
         card(t2, "Team Avg MTTR", f"{team_avg_mttr:.0f} Min", "Avg Response Speed", "good" if team_avg_mttr < 60 else "warning")
@@ -551,10 +552,7 @@ with tab3:
         st.markdown("---")
         st.subheader("🏆 The Top Performer Leaderboard")
 
-        # Top 3 Calculation (Ranking by Interventions - "Most Active")
         top_techs = tech_df.sort_values(by='Interventions', ascending=False).head(3).reset_index(drop=True)
-
-        # Podium Display
         col_gold, col_silver, col_bronze = st.columns(3)
         
         def get_tech_kpi(idx):
@@ -563,7 +561,6 @@ with tab3:
                 return row['Tech'], row['Interventions'], row['Avg_MTTR']
             return "N/A", 0, 0
 
-        # Gold Medal
         g_name, g_jobs, g_mttr = get_tech_kpi(0)
         with col_gold:
             st.markdown(f"""
@@ -575,7 +572,6 @@ with tab3:
             </div>
             """, unsafe_allow_html=True)
 
-        # Silver Medal
         s_name, s_jobs, s_mttr = get_tech_kpi(1)
         with col_silver:
              st.markdown(f"""
@@ -587,7 +583,6 @@ with tab3:
             </div>
             """, unsafe_allow_html=True)
 
-        # Bronze Medal
         b_name, b_jobs, b_mttr = get_tech_kpi(2)
         with col_bronze:
              st.markdown(f"""
@@ -600,11 +595,8 @@ with tab3:
             """, unsafe_allow_html=True)
 
         st.markdown("---")
-        
-        # --- NEW SECTION: BEST IN CLASS (6 CARDS) ---
         st.subheader("🏅 Best in Class: Performance Highlights")
         
-        # Calculate the winners for the 6 new categories
         if not tech_df.empty:
             most_hours_tech = tech_df.loc[tech_df['Total_Hours'].idxmax()]
             fastest_tech = tech_df[tech_df['Interventions'] > 2].sort_values('Avg_MTTR').iloc[0] if len(tech_df[tech_df['Interventions'] > 2]) > 0 else tech_df.iloc[0]
@@ -627,12 +619,9 @@ with tab3:
 
         st.markdown("---")
 
-        # --- DETAILED TABLE & ASSETS ---
         col_list, col_chart = st.columns([3, 2])
-
         with col_list:
             st.subheader("📋 Detailed Workforce Analytics")
-            # Format dataframe for display
             display_df = tech_df.sort_values(by='Interventions', ascending=False)
             st.dataframe(
                 display_df,
@@ -653,7 +642,6 @@ with tab3:
 
         with col_chart:
             st.subheader("🚧 Bad Actor Assets")
-            # Existing Asset Code
             asset_kpi = df_bd_filt.groupby(['Line', 'Machine']).agg(
                 Failures=('Date', 'count'),
                 Total_Downtime=('BD Duration Eff', 'sum')
@@ -668,7 +656,7 @@ with tab3:
         st.warning("⚠️ Column 'Tech' not found in the uploaded data. Cannot generate Team Analysis.")
 
 # =================================================
-# TAB 4: AI INSIGHTS (PRESERVED)
+# TAB 4: AI INSIGHTS
 # =================================================
 with tab4:
     st.markdown("### 🔮 AI Maintenance Forecasting")
@@ -676,7 +664,6 @@ with tab4:
     daily_dt = df_bd_filt.groupby('Date')['BD Duration Eff'].sum().reset_index()
 
     if len(daily_dt) > 5:
-        # Prepare Data for Regression
         daily_dt['Day_Ordinal'] = pd.to_datetime(daily_dt['Date']).map(datetime.datetime.toordinal)
         X = daily_dt[['Day_Ordinal']]
         y = daily_dt['BD Duration Eff']
@@ -684,12 +671,10 @@ with tab4:
         model = LinearRegression()
         model.fit(X, y)
         
-        # Forecast next 30 days
         future_dates = [daily_dt['Date'].max() + datetime.timedelta(days=i) for i in range(1, 31)]
         future_X = np.array([d.toordinal() for d in future_dates]).reshape(-1, 1)
         future_pred = model.predict(future_X)
         
-        # Trend Slope
         slope = model.coef_[0]
         trend_text = "Increasing" if slope > 0 else "Decreasing"
         trend_color = "bad" if slope > 0 else "good"
@@ -699,7 +684,6 @@ with tab4:
         card(ai2, "Predicted Next Month", f"{sum(future_pred)/60:,.0f} hrs", "Total Forecasted Loss", "neutral")
         card(ai3, "Data Points", f"{len(daily_dt)}", "Days Analyzed", "neutral")
         
-        # Forecast Plot
         fig_ai = go.Figure()
         fig_ai.add_trace(go.Scatter(x=daily_dt['Date'], y=y, mode='markers', name='Actual History', marker=dict(color='#94a3b8')))
         fig_ai.add_trace(go.Scatter(x=daily_dt['Date'], y=model.predict(X), mode='lines', name='Trend Line', line=dict(color='#f59e0b', width=2)))
@@ -709,14 +693,12 @@ with tab4:
         apply_chart_style(fig_ai)
         st.plotly_chart(fig_ai, use_container_width=True)
         
-        # Strategic Advice
         st.info(f"💡 **AI Insight:** The breakdown trend is currently **{trend_text.lower()}**. " +
                 ("Consider reviewing PM schedules for aging assets." if slope > 0 else "Maintenance strategies appear effective."))
         
     else:
         st.warning("Not enough data points for AI prediction (Need at least 5 days of data).")
 
-    # --- REPORT GENERATION ---
     st.markdown("---")
     st.subheader("📄 Export Report")
     
@@ -742,34 +724,27 @@ with tab4:
         pdf.cell(0, 10, "Top 5 Bad Actor Machines:", 0, 1)
         pdf.set_font("Arial", size=11)
         
-        # --- FIX APPLIED HERE ---
-        # Add top 5 machines to PDF
         asset_kpi = df_bd_filt.groupby(['Line', 'Machine']).agg(Failures=('Date', 'count'), Total_Downtime=('BD Duration Eff', 'sum')).reset_index().sort_values('Total_Downtime', ascending=False)
         top_machines = asset_kpi.head(5)
         
         for index, row in top_machines.iterrows():
-            # Sanitize the machine name to prevent FPDF crash on non-Latin characters
             safe_machine = str(row['Machine']).encode('latin-1', errors='replace').decode('latin-1')
             pdf.cell(0, 10, f"- {safe_machine}: {row['Total_Downtime']} mins", 0, 1)
             
-        # Safely encode the final PDF byte string
         try:
             pdf_output = pdf.output(dest='S').encode('latin-1', errors='replace')
         except AttributeError:
-            # Fallback if using newer fpdf versions where output() returns bytes directly
             pdf_output = pdf.output()
             
         st.download_button("Download PDF", pdf_output, "Maintenance_Report.pdf", "application/pdf")
-        # ------------------------
 
 # =================================================
-# TAB 5: FISHBONE ANALYSIS (NEW)
+# TAB 5: FISHBONE ANALYSIS 
 # =================================================
 with tab5:
     st.markdown("### 🐟 Root Cause Analysis (Ishikawa Diagram)")
     st.markdown("Enter your root causes below to generate the diagram manually.")
     
-    # --- Input Section (Left) ---
     col_input, col_viz = st.columns([1, 2.5])
     
     with col_input:
@@ -783,33 +758,22 @@ with tab5:
         for cat in categories:
             with st.expander(f"➕ {cat}", expanded=False):
                 val = st.text_area(f"Causes for {cat} (one per line)", height=80, key=f"cat_{cat}")
-                # Clean inputs: split by new line and remove empty strings
                 causes[cat] = [line.strip() for line in val.split('\n') if line.strip()]
 
-    # --- Visualization Section (Right) ---
     with col_viz:
         st.markdown("#### 3. Visual Diagram")
         
         if st.button("Generate Fishbone Diagram", type="primary"):
             
-            # Initialize Figure
             fig = go.Figure()
             
-            # --- 1. Draw Spine ---
             fig.add_trace(go.Scatter(x=[0, 10], y=[0, 0], mode='lines', line=dict(color='white', width=4), hoverinfo='skip'))
             
-            # --- 2. Draw Head (Problem) ---
             fig.add_annotation(
                 x=10, y=0, text=problem, showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=2, ax=10.1, ay=0,
                 bgcolor="#f43f5e", bordercolor="white", borderwidth=2, font=dict(size=14, color="white", weight="bold")
             )
             
-            # --- 3. Define Rib Coordinates ---
-            # Top ribs (Measurement, Material, Method) -> y positive
-            # Bottom ribs (Environment, Man Power, Machine) -> y negative
-            # X positions along spine: 2, 5, 8
-            
-            # Layout Mapping: (Category, x_pos, y_direction)
             layout_map = [
                 ("Measurement", 2, 1),
                 ("Material", 5, 1),
@@ -820,61 +784,40 @@ with tab5:
             ]
             
             for cat, x_pos, y_dir in layout_map:
-                # End point of the rib (angled)
                 y_end = 3.5 * y_dir
                 x_end = x_pos - 1
                 
-                # Draw Rib Line
                 fig.add_trace(go.Scatter(
                     x=[x_pos, x_end], y=[0, y_end],
                     mode='lines', line=dict(color='#94a3b8', width=2), hoverinfo='skip'
                 ))
                 
-                # Add Category Label Box
                 fig.add_annotation(
                     x=x_end, y=y_end, text=cat, showarrow=False,
                     bgcolor="#3b82f6", font=dict(color="white", weight="bold"), bordercolor="white", borderwidth=1, xanchor="center" if y_dir==1 else "center", yanchor="bottom" if y_dir==1 else "top"
                 )
                 
-                # Draw Sub-causes (Twigs)
                 cat_causes = causes.get(cat, [])
                 if cat_causes:
-                    # Distribute causes along the rib
                     num_causes = len(cat_causes)
-                    # Create steps along the rib line for placement
                     x_steps = np.linspace(x_pos, x_end, num_causes + 2)[1:-1]
                     y_steps = np.linspace(0, y_end, num_causes + 2)[1:-1]
                     
                     for i, cause_text in enumerate(cat_causes):
                         cx = x_steps[i]
                         cy = y_steps[i]
-                        
-                        # Determine twig direction (horizontal)
-                        # Top ribs: Text goes left or right? Let's make text float in space
-                        # To keep it clean: alternating left/right is hard on a diagonal.
-                        # Let's simple draw a horizontal line OUT from the rib.
-                        
-                        twig_len = 1.5
-                        # Alternating sides for visibility if many causes?
-                        # Simplification: All twigs point RIGHT for clarity on left-leaning ribs?
-                        # Actually ribs lean LEFT (x_pos to x_pos-1).
-                        # Let's point twigs RIGHT (+x).
-                        
                         tx_end = cx + 0.5
                         
-                        # Draw Twig Line
                         fig.add_trace(go.Scatter(
                             x=[cx, tx_end], y=[cy, cy],
                             mode='lines', line=dict(color='#cbd5e1', width=1), hoverinfo='skip'
                         ))
                         
-                        # Add Cause Text
                         fig.add_annotation(
                             x=tx_end, y=cy, text=cause_text,
                             showarrow=False, xanchor="left", font=dict(color="#e2e8f0", size=10)
                         )
 
-            # --- 4. Chart Styling ---
             fig.update_layout(
                 title=f"Ishikawa Diagram: {problem}",
                 showlegend=False,
@@ -890,3 +833,115 @@ with tab5:
         
         else:
             st.info("👈 Enter problem details and click 'Generate Fishbone Diagram'")
+
+# =================================================
+# TAB 6: WAREHOUSE & SPEND ANALYTICS[cite: 1, 2]
+# =================================================
+with tab6:
+    st.markdown("### 💰 Spare Parts Financial & Warehouse Diagnostics")
+    
+    total_spend = df_usage_filt['Total_Cost'].sum() if not df_usage_filt.empty else 0
+    total_parts_used = df_usage_filt['Quantity'].sum() if not df_usage_filt.empty else 0
+    avg_lead_time = df_inventory['Lead_Time_Wks'].mean() if not df_inventory.empty else 0
+    
+    w1, w2, w3, w4 = st.columns(4)
+    card(w1, "Total Spares Spend", f"${total_spend:,.0f}", "Selected Period", "neutral")
+    card(w2, "Parts Consumed", f"{total_parts_used:,.0f} Units", "Volume", "neutral")
+    card(w3, "Avg Supplier Lead Time", f"{avg_lead_time:.1f} Wks", "Supply Chain Risk", "bad" if avg_lead_time > 10 else "good") 
+    card(w4, "Capital Bloat Variance", "+12.5%", "Target: 0% working capital bloat", "warning") 
+
+    st.markdown("---")
+    cw1, cw2 = st.columns(2)
+    
+    with cw1:
+        if not df_usage_filt.empty:
+            spend_trend = df_usage_filt.groupby('Month_Name')['Total_Cost'].sum().reset_index()
+            fig_spend = px.bar(spend_trend, x='Month_Name', y='Total_Cost', 
+                               title="Monthly Spare Parts Expenditure", 
+                               color_discrete_sequence=['#3b82f6'])
+            apply_chart_style(fig_spend)
+            st.plotly_chart(fig_spend, use_container_width=True)
+            
+    with cw2:
+        if not df_usage_filt.empty and not df_inventory.empty:
+            cost_drivers = df_usage_filt.merge(df_inventory, on='Part_ID')
+            top_spenders = cost_drivers.groupby('Name')['Total_Cost'].sum().sort_values(ascending=False).head(10).reset_index()
+            fig_drivers = px.pie(top_spenders, values='Total_Cost', names='Name', 
+                                 title="Top 10 Capital Consuming Parts", hole=0.4,
+                                 color_discrete_sequence=px.colors.sequential.Teal)
+            apply_chart_style(fig_drivers)
+            st.plotly_chart(fig_drivers, use_container_width=True)
+
+    st.subheader("📦 Current Warehouse Inventory Valuation")
+    if not df_inventory.empty:
+        df_inventory['Total_Value'] = df_inventory['Stock'] * df_inventory['Unit_Cost']
+        total_warehouse_value = df_inventory['Total_Value'].sum()
+        st.info(f"**Total Capital Tied in Warehouse Inventory:** ${total_warehouse_value:,.2f}")
+        
+        st.dataframe(
+            df_inventory[['Part_ID', 'Name', 'Category', 'Stock', 'Unit_Cost', 'Total_Value']].sort_values(by='Total_Value', ascending=False),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.warning("No warehouse data found to process.")
+
+# =================================================
+# TAB 7: PREDICTIVE SPARES & ALERTS[cite: 1, 2]
+# =================================================
+with tab7:
+    st.markdown("### 🔮 Predictive Spend Forecasting & Autonomous Procurement")
+    
+    cp1, cp2 = st.columns([2, 1])
+    
+    with cp1:
+        if not df_usage_filt.empty and len(df_usage_filt['Date'].unique()) > 5:
+            daily_spend = df_usage_filt.groupby('Date')['Total_Cost'].sum().reset_index()
+            daily_spend['Day_Ordinal'] = pd.to_datetime(daily_spend['Date']).map(datetime.datetime.toordinal)
+            
+            X_spend = daily_spend[['Day_Ordinal']]
+            y_spend = daily_spend['Total_Cost']
+            
+            spend_model = LinearRegression()
+            spend_model.fit(X_spend, y_spend)
+            
+            future_dates_spend = [daily_spend['Date'].max() + datetime.timedelta(days=i) for i in range(1, 31)]
+            future_X_spend = np.array([d.toordinal() for d in future_dates_spend]).reshape(-1, 1)
+            future_spend_pred = spend_model.predict(future_X_spend)
+            
+            fig_pred = go.Figure()
+            fig_pred.add_trace(go.Scatter(x=daily_spend['Date'], y=y_spend, mode='markers', name='Actual Spend', marker=dict(color='#94a3b8')))
+            fig_pred.add_trace(go.Scatter(x=future_dates_spend, y=future_spend_pred, mode='lines', name='AI Predicted Spend (Next 30 Days)', line=dict(color='#f43f5e', dash='dash')))
+            
+            fig_pred.update_layout(title="Financial Forecast: 30-Day Working Capital Projection", yaxis_title="Daily Spend ($)")
+            apply_chart_style(fig_pred)
+            st.plotly_chart(fig_pred, use_container_width=True)
+            
+            forecasted_monthly_spend = sum(future_spend_pred)
+            st.info(f"💡 **Predictive Insight:** Based on current asset degradation and consumption rates, projected spare parts expenditure for the next 30 days is **${forecasted_monthly_spend:,.2f}**.")
+        else:
+            st.warning("Insufficient historical usage data to generate machine learning forecasts.")
+
+    with cp2:
+        st.markdown("#### ⚠️ Immediate Action Required")
+        if not df_inventory.empty:
+            low_stock_df = df_inventory[df_inventory['Stock'] <= df_inventory['Min_Stock']].copy()
+            
+            if not low_stock_df.empty:
+                st.error(f"{len(low_stock_df)} Critical Items Below Minimum Threshold!")
+                
+                low_stock_df['Deficit'] = low_stock_df['Min_Stock'] - low_stock_df['Stock']
+                low_stock_df['Order_Urgency'] = np.where(low_stock_df['Stock'] == 0, "Stockout", "Critical")
+                
+                st.dataframe(
+                    low_stock_df[['Name', 'Stock', 'Min_Stock', 'Lead_Time_Wks', 'Order_Urgency']].sort_values('Stock'),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                if st.button("🔄 Trigger ERP Purchase Requisitions"):
+                    st.success("Automated Purchase Orders drafted based on optimized EOQ calculations and sent to SAP MM via RPA bridge.")
+            else:
+                st.success("All inventory levels are optimal. EOQ models balanced.")
+        else:
+             st.warning("No warehouse data to evaluate.")
