@@ -26,14 +26,13 @@ uploaded_file = st.file_uploader("Upload your 'Maintenance_KPIs_2026_Extended.xl
 
 if uploaded_file is None:
     st.info("👆 Please upload the generated Excel file to initialize the dashboard.")
-    st.stop() # Stops execution until a file is provided
+    st.stop()
 
 # ---------------------------------------------------------
 # 1. Data Preprocessing & Cleaning
 # ---------------------------------------------------------
 @st.cache_data
 def load_and_preprocess_data(file):
-    # Load Data directly from the uploaded file buffer
     xls = pd.ExcelFile(file)
     df_breakdowns = pd.read_excel(xls, 'Breakdowns')
     df_open = pd.read_excel(xls, 'Open hours')
@@ -41,27 +40,22 @@ def load_and_preprocess_data(file):
     df_parts = pd.read_excel(xls, 'Spare_Parts')
     df_usage = pd.read_excel(xls, 'Parts_Usage')
 
-    # Date Conversion & Standardization
     for df in [df_breakdowns, df_open, df_planned, df_usage]:
         df['Date'] = pd.to_datetime(df['Date'])
         
-    # Data Cleaning
     df_breakdowns['Effective DT reverted'] = pd.to_numeric(df_breakdowns['Effective DT reverted'], errors='coerce').fillna(0)
     df_breakdowns.dropna(subset=['Machine', 'Line'], inplace=True)
     
-    # Enrich Usage with Parts Master
     df_usage_enriched = df_usage.merge(
         df_parts[['Part_ID', 'Name', 'Category', 'Unit_Cost']], 
         on='Part_ID', how='left'
     )
     
-    # Add temporal features
     df_breakdowns['Month'] = df_breakdowns['Date'].dt.month_name()
     df_breakdowns['Day_of_Week'] = df_breakdowns['Date'].dt.day_name()
     
     return df_breakdowns, df_open, df_planned, df_parts, df_usage_enriched
 
-# Load data using the cached function
 try:
     df_breakdowns, df_open, df_planned, df_parts, df_usage = load_and_preprocess_data(uploaded_file)
 except Exception as e:
@@ -78,7 +72,6 @@ selected_lines = st.sidebar.multiselect(
     default=df_breakdowns['Line'].unique()
 )
 
-# Apply filters to main datasets
 df_bd_filtered = df_breakdowns[df_breakdowns['Line'].isin(selected_lines)]
 df_usg_filtered = df_usage[df_usage['Line'].isin(selected_lines)]
 
@@ -273,7 +266,8 @@ with tab5:
         st.success("All inventory levels are healthy. No actions required.")
     else:
         st.error(f"Action Required: {len(actionable)} parts are below minimum stock limits.")
-        st.dataframe(actionable.style.applymap(lambda x: "background-color: #ffcccc" if 'URGENT' in str(x) else ""), use_container_width=True)
+        # FIX IMPLEMENTED HERE: Updated .applymap() to .map() for Pandas 2.1.0+ compatibility
+        st.dataframe(actionable.style.map(lambda x: "background-color: #ffcccc" if 'URGENT' in str(x) else ""), use_container_width=True)
 
 # ==========================================
 # TAB 6: AI Forecasting
