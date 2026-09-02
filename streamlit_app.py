@@ -19,12 +19,22 @@ st.set_page_config(page_title="FMCG Maintenance Dashboard", layout="wide")
 st.title("🏭 FMCG Maintenance & Reliability Dashboard")
 
 # ---------------------------------------------------------
+# File Upload Widget
+# ---------------------------------------------------------
+st.markdown("### Data Input")
+uploaded_file = st.file_uploader("Upload your 'Maintenance_KPIs_2026_Extended.xlsx' file", type=['xlsx'])
+
+if uploaded_file is None:
+    st.info("👆 Please upload the generated Excel file to initialize the dashboard.")
+    st.stop() # Stops execution until a file is provided
+
+# ---------------------------------------------------------
 # 1. Data Preprocessing & Cleaning
 # ---------------------------------------------------------
 @st.cache_data
-def load_and_preprocess_data(filepath):
-    # Load Data
-    xls = pd.ExcelFile(filepath)
+def load_and_preprocess_data(file):
+    # Load Data directly from the uploaded file buffer
+    xls = pd.ExcelFile(file)
     df_breakdowns = pd.read_excel(xls, 'Breakdowns')
     df_open = pd.read_excel(xls, 'Open hours')
     df_planned = pd.read_excel(xls, 'Planned')
@@ -51,11 +61,11 @@ def load_and_preprocess_data(filepath):
     
     return df_breakdowns, df_open, df_planned, df_parts, df_usage_enriched
 
-# Load data
+# Load data using the cached function
 try:
-    df_breakdowns, df_open, df_planned, df_parts, df_usage = load_and_preprocess_data("Maintenance_KPIs_2026_Extended.xlsx")
-except FileNotFoundError:
-    st.error("⚠️ Data file 'Maintenance_KPIs_2026_Extended.xlsx' not found. Please ensure it is generated and in the same directory.")
+    df_breakdowns, df_open, df_planned, df_parts, df_usage = load_and_preprocess_data(uploaded_file)
+except Exception as e:
+    st.error(f"⚠️ Error reading the Excel file. Please ensure it has the correct sheets. Details: {e}")
     st.stop()
 
 # ---------------------------------------------------------
@@ -171,24 +181,19 @@ with tab4:
     
     @st.cache_resource
     def train_part_failure_model(df_u):
-        # 1. Calculate MTBF (Mean days between usage of the same part)
         part_freq = df_u.groupby('Part_ID')['Date'].apply(lambda x: x.sort_values().diff().dt.days.mean()).fillna(45)
         
-        # 2. Generate training data representing part life cycles
         data = []
         for part_id, mtbf in part_freq.items():
-            # Healthy states (0)
             for _ in range(50):
                 days = np.random.uniform(0, mtbf * 0.8)
                 data.append([part_id, days, 0])
-            # Failure states (1)
             for _ in range(50):
                 days = np.random.uniform(mtbf * 0.8, mtbf * 1.5)
                 data.append([part_id, days, 1])
                 
         df_synth = pd.DataFrame(data, columns=['Part_ID', 'Days_Since_Replacement', 'Failed'])
         
-        # 3. Train the Classifier
         X = df_synth[['Part_ID', 'Days_Since_Replacement']]
         y = df_synth['Failed']
         
@@ -213,7 +218,6 @@ with tab4:
         
     if st.button("Predict Failure Probability"):
         input_df = pd.DataFrame([[selected_part_id, current_days]], columns=['Part_ID', 'Days_Since_Replacement'])
-        # Predict probability of class 1 (Failure)
         prob = rf_clf_model.predict_proba(input_df)[0][1] * 100
         
         col_gauge, col_text = st.columns([1, 1])
