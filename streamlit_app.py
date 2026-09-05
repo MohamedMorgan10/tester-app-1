@@ -48,7 +48,7 @@ def load_and_preprocess_data(file):
     df_breakdowns.dropna(subset=['Machine', 'Line'], inplace=True)
  
     df_usage_enriched = df_usage.merge(
-        df_parts[['Part_ID', 'Name', 'Category', 'Unit_Cost']], 
+        df_parts[['Part_ID', 'Name', 'Category', 'Unit_Cost']],
         on='Part_ID', how='left'
     )
  
@@ -68,8 +68,8 @@ except Exception as e:
 # ---------------------------------------------------------
 st.sidebar.header("Filter Data")
 selected_lines = st.sidebar.multiselect(
-    "Select Production Lines", 
-    options=df_breakdowns['Line'].unique(), 
+    "Select Production Lines",
+    options=df_breakdowns['Line'].unique(),
     default=df_breakdowns['Line'].unique()
 )
  
@@ -80,9 +80,9 @@ df_usg_filtered = df_usage[df_usage['Line'].isin(selected_lines)]
 # Analytics Functions & UI Tabs
 # ---------------------------------------------------------
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-    "📊 Descriptive", 
-    "🔍 Diagnostic", 
-    "⏱️ Predictive (Repair Time)", 
+    "📊 Descriptive",
+    "🔍 Diagnostic",
+    "⏱️ Predictive (Repair Time)",
     "⚠️ Predictive (Part Failure)",
     "💊 Prescriptive",
     "📈 AI Forecasting",
@@ -247,5 +247,5 @@ with tab4:
             elif prob < 70:
                 st.warning(f"### Status: Monitor Closely\nThe '{selected_part_name}' is approaching its average failure threshold. Add to inspection route.")
             else:
-                st.error(f"### S
+                st.err
  
