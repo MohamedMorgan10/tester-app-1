@@ -78,7 +78,6 @@ df_usg_filtered = df_usage[df_usage['Line'].isin(selected_lines)]
 # ---------------------------------------------------------
 # Analytics Functions & UI Tabs
 # ---------------------------------------------------------
-# Added Tab 7 for the 3D Simulation
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 Descriptive", 
     "🔍 Diagnostic", 
@@ -268,7 +267,6 @@ with tab5:
         st.success("All inventory levels are healthy. No actions required.")
     else:
         st.error(f"Action Required: {len(actionable)} parts are below minimum stock limits.")
-        # Used .map() for Pandas 2.1.0+ compatibility
         st.dataframe(actionable.style.map(lambda x: "background-color: #ffcccc" if 'URGENT' in str(x) else ""), use_container_width=True)
 
 # ==========================================
@@ -492,4 +490,3 @@ with tab7:
     )
 
     st.plotly_chart(fig_3d, use_container_width=True)
-```eof
