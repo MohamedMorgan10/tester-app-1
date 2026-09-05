@@ -86,8 +86,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "⚠️ Predictive (Part Failure)",
     "💊 Prescriptive",
     "📈 AI Forecasting",
-    "🤖 3D Static Routes",
-    "▶️ Live Simulator"
+    "🗺️ Static Blueprint Routes",
+    "▶️ Live Simulator (Engineering View)"
 ])
  
 # ==========================================
@@ -247,4 +247,3 @@ with tab4:
             elif prob < 70:
                 st.warning(f"### Status: Monitor Closely\nThe '{selected_part_name}' is approaching its average failure threshold. Add to inspection route.")
             else:
-                st.error(f"### S
