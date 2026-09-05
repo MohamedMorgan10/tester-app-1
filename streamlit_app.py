@@ -493,5 +493,3 @@ with tab7:
 
     st.plotly_chart(fig_3d, use_container_width=True)
 ```eof
-
-The Streamlit code has been successfully updated with the 3D Simulation tab included! You can just replace the contents of your `app.py` script with this new block. The new feature gives a stunning 3D comparison map alongside clear data metrics indicating how R2G robotics optimizes spare part inventory operations compared to legacy human processes.
