@@ -10,6 +10,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 import xgboost as xgb
 import warnings
+import time
 warnings.filterwarnings('ignore')
 
 # ---------------------------------------------------------
@@ -78,14 +79,15 @@ df_usg_filtered = df_usage[df_usage['Line'].isin(selected_lines)]
 # ---------------------------------------------------------
 # Analytics Functions & UI Tabs
 # ---------------------------------------------------------
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📊 Descriptive", 
     "🔍 Diagnostic", 
     "⏱️ Predictive (Repair Time)", 
     "⚠️ Predictive (Part Failure)",
     "💊 Prescriptive",
     "📈 AI Forecasting",
-    "🤖 3D R2G Simulation"
+    "🤖 3D Static Routes",
+    "▶️ Live Simulator"
 ])
 
 # ==========================================
@@ -325,168 +327,222 @@ with tab6:
     st.plotly_chart(fig4, use_container_width=True)
 
 # ==========================================
-# TAB 7: 3D Warehouse Simulation (New)
+# TAB 7: 3D Warehouse Simulation (Static Paths)
 # ==========================================
 with tab7:
-    st.header("🤖 3D Warehouse Simulation: Parts Withdrawal Process")
-    st.markdown("""
-    Compare the warehouse routing and parts retrieval efficiency between a **Traditional Human Worker** 
-    and an autonomous **R2G (Robot-to-Goods) / AMR system**.
-    - **Human Worker:** Navigates aisle-by-aisle (serpentine routing), walking at ~1.2 m/s. Slower search/scan time per bin.
-    - **R2G Robot:** Navigates via optimized logic (Nearest-Neighbor), moving directly across intersections at ~2.0 m/s. Instant digital scanning.
-    """)
+    st.header("🤖 Static 3D Routing: Human vs R2G Paths")
+    st.markdown("Displays the complete computed routes for both a Human worker (Aisle-by-Aisle) and R2G Robot (Optimized TSP).")
 
-    # --- Controls ---
-    sim_col1, sim_col2, sim_col3 = st.columns(3)
+    sim_col1, sim_col2 = st.columns(2)
     with sim_col1:
-        num_picks = st.slider("Number of Parts in Work Order", 5, 50, 20)
+        num_picks_static = st.slider("Number of Parts in Work Order", 5, 50, 20, key='static_slider')
     with sim_col2:
-        warehouse_size = st.selectbox("Warehouse Zone Layout", ["Medium (20x20 Racks)", "Large (40x40 Racks)"])
-    with sim_col3:
-        if st.button("🔄 Generate New Simulation", use_container_width=True):
-            st.rerun()
+        st.write("")
+        if st.button("🔄 Generate Static Routes", use_container_width=True):
+            pass # Triggers re-run to update random points
 
-    # Define constraints
-    max_x = 20 if "Medium" in warehouse_size else 40
-    max_y = 20 if "Medium" in warehouse_size else 40
-    max_z = 5 # 5 shelves high
-
-    # Generate random pick locations
-    np.random.seed() # Randomize per run
-    picks_df = pd.DataFrame({
-        'Pick_ID': range(1, num_picks + 1),
-        'X': np.random.randint(1, max_x, num_picks),
-        'Y': np.random.randint(1, max_y, num_picks),
-        'Z': np.random.randint(0, max_z, num_picks)
+    max_x, max_y, max_z = 20, 20, 5
+    np.random.seed(42) # For static tab consistency across re-runs unless slider changes
+    picks_df_static = pd.DataFrame({
+        'Pick_ID': range(1, num_picks_static + 1),
+        'X': np.random.randint(1, max_x, num_picks_static),
+        'Y': np.random.randint(1, max_y, num_picks_static),
+        'Z': np.random.randint(0, max_z, num_picks_static)
     })
-    start_point = pd.DataFrame([{'Pick_ID': 0, 'X': 0, 'Y': 0, 'Z': 0}])
+    start_point_static = pd.DataFrame([{'Pick_ID': 0, 'X': 0, 'Y': 0, 'Z': 0}])
 
-    # --- Routing Logic: Human (Serpentine/Aisle-by-Aisle) ---
-    # Sort primarily by Aisle (Y), then alternating direction by X to simulate walking up and down aisles
-    human_picks = picks_df.copy()
-    human_picks = human_picks.sort_values(by=['Y', 'X']) 
-    human_path = pd.concat([start_point, human_picks, start_point]).reset_index(drop=True)
+    # Routing Logic
+    human_picks_static = picks_df_static.copy().sort_values(by=['Y', 'X']) 
+    human_path_static = pd.concat([start_point_static, human_picks_static, start_point_static]).reset_index(drop=True)
 
-    # --- Routing Logic: Robot (Nearest Neighbor TSP Heuristic) ---
-    robot_picks = picks_df[['X', 'Y', 'Z']].values.tolist()
+    robot_picks_list = picks_df_static[['X', 'Y', 'Z']].values.tolist()
     curr = [0, 0, 0]
-    robot_path_coords = [curr]
+    robot_path_coords_static = [curr]
     
-    while robot_picks:
-        # Calculate Manhattan distance to all remaining picks
-        next_pick = min(robot_picks, key=lambda p: abs(p[0]-curr[0]) + abs(p[1]-curr[1]) + abs(p[2]-curr[2]))
-        robot_path_coords.append(next_pick)
-        robot_picks.remove(next_pick)
+    while robot_picks_list:
+        next_pick = min(robot_picks_list, key=lambda p: abs(p[0]-curr[0]) + abs(p[1]-curr[1]) + abs(p[2]-curr[2]))
+        robot_path_coords_static.append(next_pick)
+        robot_picks_list.remove(next_pick)
         curr = next_pick
         
-    robot_path_coords.append([0, 0, 0]) # Return to base
-    robot_path = pd.DataFrame(robot_path_coords, columns=['X', 'Y', 'Z'])
+    robot_path_coords_static.append([0, 0, 0])
+    robot_path_static = pd.DataFrame(robot_path_coords_static, columns=['X', 'Y', 'Z'])
 
-    # --- KPI Calculation ---
-    def calc_distance(df):
-        dist = 0
-        for i in range(1, len(df)):
-            dist += abs(df.iloc[i]['X'] - df.iloc[i-1]['X']) + \
-                    abs(df.iloc[i]['Y'] - df.iloc[i-1]['Y']) + \
-                    abs(df.iloc[i]['Z'] - df.iloc[i-1]['Z'])
-        return dist * 2.5 # Assuming 2.5 meters between rack sections
-
-    human_dist = calc_distance(human_path)
-    robot_dist = calc_distance(robot_path)
-
-    # Assumptions: Human = 1.2 m/s travel, 15s scan/pick. Robot = 2.0 m/s travel, 4s scan/pick.
-    human_time_seconds = (human_dist / 1.2) + (num_picks * 15) 
-    robot_time_seconds = (robot_dist / 2.0) + (num_picks * 4)
-
-    human_time_mins = human_time_seconds / 60
-    robot_time_mins = robot_time_seconds / 60
-
-    human_picks_per_hr = (num_picks / human_time_seconds) * 3600
-    robot_picks_per_hr = (num_picks / robot_time_seconds) * 3600
-
-    # --- KPIs Display ---
-    st.markdown("### 📊 Performance Comparison")
-    kpi1, kpi2, kpi3 = st.columns(3)
-    
-    kpi1.metric("Total Travel Distance (m)", 
-                f"R2G: {robot_dist:,.0f}m", 
-                delta=f"Human: {human_dist:,.0f}m ({((robot_dist - human_dist)/human_dist)*100:.1f}%)", 
-                delta_color="inverse")
-    
-    kpi2.metric("Total Order Completion Time (mins)", 
-                f"R2G: {robot_time_mins:.1f} m", 
-                delta=f"Human: {human_time_mins:.1f} m ({(robot_time_mins - human_time_mins):.1f} m)", 
-                delta_color="inverse")
-    
-    kpi3.metric("Picking Efficiency (Picks / Hour)", 
-                f"R2G: {robot_picks_per_hr:.0f}", 
-                delta=f"Human: {human_picks_per_hr:.0f} (+{robot_picks_per_hr - human_picks_per_hr:.0f})", 
-                delta_color="normal")
-
-    # --- 3D Visualization using Plotly ---
-    st.markdown("### 🗺️ 3D Routing Visualization")
-    
     fig_3d = go.Figure()
 
-    # 1. Background Rack Grid (Visual Context)
+    # Racks Grid
     x_grid, y_grid = np.meshgrid(range(0, max_x, 4), range(0, max_y, 4))
-    z_grid = np.zeros_like(x_grid)
     fig_3d.add_trace(go.Scatter3d(
-        x=x_grid.flatten(), y=y_grid.flatten(), z=z_grid.flatten(),
-        mode='markers',
-        marker=dict(size=2, color='lightgray', opacity=0.3),
-        name='Warehouse Racks (Base)'
+        x=x_grid.flatten(), y=y_grid.flatten(), z=np.zeros_like(x_grid).flatten(),
+        mode='markers', marker=dict(size=2, color='lightgray', opacity=0.3), name='Racks'
     ))
 
-    # 2. Add Target Pick Locations
+    # Targets
     fig_3d.add_trace(go.Scatter3d(
-        x=picks_df['X'], y=picks_df['Y'], z=picks_df['Z'],
-        mode='markers',
-        marker=dict(size=6, color='gold', symbol='diamond', line=dict(width=1, color='black')),
-        name='Target Parts (Picks)'
+        x=picks_df_static['X'], y=picks_df_static['Y'], z=picks_df_static['Z'],
+        mode='markers', marker=dict(size=6, color='gold', symbol='diamond', line=dict(width=1, color='black')), name='Targets'
     ))
 
-    # 3. Add Human Path (Serpentine)
-    fig_3d.add_trace(go.Scatter3d(
-        x=human_path['X'], y=human_path['Y'], z=human_path['Z'],
-        mode='lines+markers',
-        line=dict(color='blue', width=4, dash='dot'),
-        marker=dict(size=3, color='blue'),
-        name='🚶‍♂️ Human Route (Aisles)'
-    ))
+    # Paths
+    fig_3d.add_trace(go.Scatter3d(x=human_path_static['X'], y=human_path_static['Y'], z=human_path_static['Z'], mode='lines', line=dict(color='blue', width=4, dash='dot'), name='🚶‍♂️ Human Route'))
+    fig_3d.add_trace(go.Scatter3d(x=robot_path_static['X'], y=robot_path_static['Y'], z=robot_path_static['Z'], mode='lines', line=dict(color='red', width=5), name='🤖 R2G Route'))
 
-    # 4. Add Robot Path (Optimized Nearest Neighbor)
-    fig_3d.add_trace(go.Scatter3d(
-        x=robot_path['X'], y=robot_path['Y'], z=robot_path['Z'],
-        mode='lines+markers',
-        line=dict(color='red', width=5),
-        marker=dict(size=4, color='red'),
-        name='🤖 R2G Robot Route (Optimized)'
-    ))
-
-    # Add Starting Point 
-    fig_3d.add_trace(go.Scatter3d(
-        x=[0], y=[0], z=[0],
-        mode='markers+text',
-        marker=dict(size=10, color='green', symbol='square'),
-        text=['Base Station'],
-        textposition='top center',
-        name='Base/Pack Station'
-    ))
-
-    # Adjust Layout
-    fig_3d.update_layout(
-        scene=dict(
-            xaxis=dict(title='X (Aisles)', range=[0, max_x]),
-            yaxis=dict(title='Y (Bays)', range=[0, max_y]),
-            zaxis=dict(title='Z (Shelves)', range=[0, max_z + 1]),
-            camera=dict(
-                eye=dict(x=1.5, y=1.5, z=0.5) # Dynamic isometric viewing angle
-            )
-        ),
-        legend=dict(x=0, y=1, bgcolor="rgba(255,255,255,0.7)"),
-        margin=dict(l=0, r=0, b=0, t=0),
-        height=700
-    )
-
+    fig_3d.update_layout(scene=dict(xaxis=dict(range=[0, max_x]), yaxis=dict(range=[0, max_y]), zaxis=dict(range=[0, max_z])), margin=dict(l=0, r=0, b=0, t=0), height=500)
     st.plotly_chart(fig_3d, use_container_width=True)
+
+# ==========================================
+# TAB 8: Live Video Simulator (Animated)
+# ==========================================
+with tab8:
+    st.header("▶️ Live Video Simulator: Real-Time Performance")
+    st.markdown("Watch the Human and Robot retrieve parts dynamically. KPIs update in real-time as the simulation runs.")
+
+    col_set1, col_set2 = st.columns(2)
+    with col_set1:
+        num_picks_live = st.slider("Number of Parts to Pick", 5, 40, 15, key='live_picks')
+    with col_set2:
+        sim_speed = st.slider("Simulation Speed", 1, 10, 5, key='sim_speed')
+
+    if st.button("🚀 Start Live Video Simulation", use_container_width=True):
+        
+        # 1. Generate Live Data Points
+        max_xl, max_yl = 20, 20
+        np.random.seed(int(time.time())) 
+        picks_df_live = pd.DataFrame({
+            'Pick_ID': range(1, num_picks_live + 1),
+            'X': np.random.randint(1, max_xl, num_picks_live),
+            'Y': np.random.randint(1, max_yl, num_picks_live)
+        })
+        start_point_live = pd.DataFrame([{'Pick_ID': 0, 'X': 0, 'Y': 0}])
+
+        # Human Path Logic (Sort by Y, X)
+        human_picks_live = picks_df_live.copy().sort_values(by=['Y', 'X']) 
+        human_path_live = pd.concat([start_point_live, human_picks_live, start_point_live]).reset_index(drop=True)
+
+        # Robot Path Logic (Nearest Neighbor)
+        robot_picks_list_live = picks_df_live[['X', 'Y']].values.tolist()
+        curr_l = [0, 0]
+        robot_path_coords_live = [curr_l]
+        while robot_picks_list_live:
+            next_pick = min(robot_picks_list_live, key=lambda p: abs(p[0]-curr_l[0]) + abs(p[1]-curr_l[1]))
+            robot_path_coords_live.append(next_pick)
+            robot_picks_list_live.remove(next_pick)
+            curr_l = next_pick
+        robot_path_coords_live.append([0, 0])
+        robot_path_live = pd.DataFrame(robot_path_coords_live, columns=['X', 'Y'])
+
+        # 2. Timeline Generation Function
+        def build_timeline(path_df, speed_mps, pick_time_s):
+            timeline = []
+            curr_time, curr_dist, picks = 0, 0, 0
+            
+            timeline.append({'time': curr_time, 'x': path_df.iloc[0]['X'], 'y': path_df.iloc[0]['Y'], 'dist': curr_dist, 'picks': picks})
+            
+            for i in range(1, len(path_df)):
+                prev = path_df.iloc[i-1]
+                curr = path_df.iloc[i]
+                
+                dist = (abs(curr['X'] - prev['X']) + abs(curr['Y'] - prev['Y'])) * 2.5
+                travel_time = dist / speed_mps
+                
+                curr_time += travel_time
+                curr_dist += dist
+                timeline.append({'time': curr_time, 'x': curr['X'], 'y': curr['Y'], 'dist': curr_dist, 'picks': picks})
+                
+                if i < len(path_df) - 1:
+                    curr_time += pick_time_s
+                    picks += 1
+                    timeline.append({'time': curr_time, 'x': curr['X'], 'y': curr['Y'], 'dist': curr_dist, 'picks': picks})
+                    
+            return pd.DataFrame(timeline)
+
+        # Human = 1.2m/s travel, 15s scan. Robot = 2.0m/s travel, 4s scan.
+        h_timeline = build_timeline(human_path_live, 1.2, 15)
+        r_timeline = build_timeline(robot_path_live, 2.0, 4)
+
+        def get_state(t, t_df):
+            if t >= t_df['time'].max(): return t_df.iloc[-1].to_dict()
+            past = t_df[t_df['time'] <= t]
+            future = t_df[t_df['time'] > t]
+            p0 = past.iloc[-1]
+            p1 = future.iloc[0]
+            if p1['time'] == p0['time']: return p0.to_dict()
+            frac = (t - p0['time']) / (p1['time'] - p0['time'])
+            return {
+                'x': p0['x'] + frac * (p1['x'] - p0['x']),
+                'y': p0['y'] + frac * (p1['y'] - p0['y']),
+                'dist': p0['dist'] + frac * (p1['dist'] - p0['dist']),
+                'picks': p0['picks']
+            }
+
+        # 3. Create UI Placeholders
+        st.markdown("---")
+        st.markdown("### 📈 Live KPI Feed")
+        col_h1, col_h2, col_h3 = st.columns(3)
+        mh1 = col_h1.empty()
+        mh2 = col_h2.empty()
+        mh3 = col_h3.empty()
+        
+        st.write("")
+        col_r1, col_r2, col_r3 = st.columns(3)
+        mr1 = col_r1.empty()
+        mr2 = col_r2.empty()
+        mr3 = col_r3.empty()
+
+        st.markdown("---")
+        st.markdown("### 🗺️ Live Top-Down Warehouse Map")
+        map_placeholder = st.empty()
+
+        # 4. Run Animation Loop
+        max_sim_time = max(h_timeline['time'].max(), r_timeline['time'].max())
+        total_frames = 50 # Smoothness 
+        
+        x_grid_live, y_grid_live = np.meshgrid(range(0, max_xl, 4), range(0, max_yl, 4))
+        
+        for frame in range(total_frames + 1):
+            current_t = frame * (max_sim_time / total_frames)
+            
+            h_state = get_state(current_t, h_timeline)
+            r_state = get_state(current_t, r_timeline)
+
+            # Update Metrics (Dynamic KPIs)
+            mh1.metric("🚶‍♂️ Human Travel Distance (m)", f"{h_state['dist']:,.1f} m")
+            mh2.metric("🚶‍♂️ Human Time Elapsed (mins)", f"{(current_t/60):,.1f} min")
+            mh3.metric("🚶‍♂️ Human Parts Picked", f"{h_state['picks']:.0f} / {num_picks_live}")
+
+            mr1.metric("🤖 R2G Travel Distance (m)", f"{r_state['dist']:,.1f} m")
+            mr2.metric("🤖 R2G Time Elapsed (mins)", f"{(current_t/60):,.1f} min")
+            mr3.metric("🤖 R2G Parts Picked", f"{r_state['picks']:.0f} / {num_picks_live}")
+
+            # Update Plotly Chart
+            fig_live = go.Figure()
+            
+            # Background Racks
+            fig_live.add_trace(go.Scatter(x=x_grid_live.flatten(), y=y_grid_live.flatten(), mode='markers', marker=dict(color='lightgray', size=6, symbol='square'), name='Racks'))
+            
+            # Target Pick Locations
+            fig_live.add_trace(go.Scatter(x=picks_df_live['X'], y=picks_df_live['Y'], mode='markers', marker=dict(color='gold', size=14, symbol='star', line=dict(color='black', width=1)), name='Target Parts'))
+            
+            # Base Station
+            fig_live.add_trace(go.Scatter(x=[0], y=[0], mode='markers+text', marker=dict(color='green', size=16, symbol='square'), text=['Base'], textposition="bottom center", name='Base'))
+
+            # Active Human Pos
+            fig_live.add_trace(go.Scatter(x=[h_state['x']], y=[h_state['y']], mode='markers+text', marker=dict(color='blue', size=24), text=['🚶‍♂️'], textposition="top center", name='Human'))
+            
+            # Active Robot Pos
+            fig_live.add_trace(go.Scatter(x=[r_state['x']], y=[r_state['y']], mode='markers+text', marker=dict(color='red', size=24), text=['🤖'], textposition="bottom center", name='Robot'))
+
+            fig_live.update_layout(
+                height=550, 
+                xaxis=dict(range=[-2, max_xl+2], title='X-Axis (Aisles)', showgrid=False), 
+                yaxis=dict(range=[-2, max_yl+2], title='Y-Axis (Bays)', showgrid=False),
+                showlegend=True,
+                margin=dict(l=0, r=0, t=0, b=0)
+            )
+
+            map_placeholder.plotly_chart(fig_live, use_container_width=True)
+            
+            # Control simulation speed
+            time.sleep(1.0 / sim_speed)
+
+        st.success("✅ Live Simulation Complete! Notice how the R2G Robot finished significantly faster due to route optimization and faster picking/travel times.")
