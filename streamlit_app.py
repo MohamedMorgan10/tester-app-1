@@ -15,7 +15,7 @@ warnings.filterwarnings('ignore')
 # ---------------------------------------------------------
 # Page Configuration
 # ---------------------------------------------------------
-st.set_page_config(page_title="FMCG Maintenance Dashboard", layout="wide")
+st.set_page_config(page_title="FMCG AI inventory optimization management Dashboard", layout="wide")
 st.title("🏭 FMCG Maintenance & Reliability Dashboard")
 
 # ---------------------------------------------------------
