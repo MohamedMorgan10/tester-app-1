@@ -343,10 +343,10 @@ with tab7:
     with sim_col2:
         st.write("")
         if st.button("🔄 Generate Static Routes", use_container_width=True):
-            pass # Triggers re-run to update random points
+            pass 
 
     max_x, max_y, max_z = 20, 20, 5
-    np.random.seed(42) # For static tab consistency across re-runs unless slider changes
+    np.random.seed(42) 
     picks_df_static = pd.DataFrame({
         'Pick_ID': range(1, num_picks_static + 1),
         'X': np.random.randint(1, max_x, num_picks_static),
@@ -460,7 +460,6 @@ with tab8:
                     
             return pd.DataFrame(timeline)
 
-        # Human = 1.2m/s travel, 15s scan. Robot = 2.0m/s travel, 4s scan.
         h_timeline = build_timeline(human_path_live, 1.2, 15)
         r_timeline = build_timeline(robot_path_live, 2.0, 4)
 
@@ -499,7 +498,7 @@ with tab8:
 
         # 4. Run Animation Loop
         max_sim_time = max(h_timeline['time'].max(), r_timeline['time'].max())
-        total_frames = 50 # Smoothness 
+        total_frames = 50 
         
         x_grid_live, y_grid_live = np.meshgrid(range(0, max_xl, 4), range(0, max_yl, 4))
         
@@ -509,7 +508,6 @@ with tab8:
             h_state = get_state(current_t, h_timeline)
             r_state = get_state(current_t, r_timeline)
 
-            # Update Metrics (Dynamic KPIs)
             mh1.metric("🚶‍♂️ Human Travel Distance (m)", f"{h_state['dist']:,.1f} m")
             mh2.metric("🚶‍♂️ Human Time Elapsed (mins)", f"{(current_t/60):,.1f} min")
             mh3.metric("🚶‍♂️ Human Parts Picked", f"{h_state['picks']:.0f} / {num_picks_live}")
@@ -518,22 +516,12 @@ with tab8:
             mr2.metric("🤖 R2G Time Elapsed (mins)", f"{(current_t/60):,.1f} min")
             mr3.metric("🤖 R2G Parts Picked", f"{r_state['picks']:.0f} / {num_picks_live}")
 
-            # Update Plotly Chart
             fig_live = go.Figure()
             
-            # Background Racks
             fig_live.add_trace(go.Scatter(x=x_grid_live.flatten(), y=y_grid_live.flatten(), mode='markers', marker=dict(color='lightgray', size=6, symbol='square'), name='Racks'))
-            
-            # Target Pick Locations
             fig_live.add_trace(go.Scatter(x=picks_df_live['X'], y=picks_df_live['Y'], mode='markers', marker=dict(color='gold', size=14, symbol='star', line=dict(color='black', width=1)), name='Target Parts'))
-            
-            # Base Station
             fig_live.add_trace(go.Scatter(x=[0], y=[0], mode='markers+text', marker=dict(color='green', size=16, symbol='square'), text=['Base'], textposition="bottom center", name='Base'))
-
-            # Active Human Pos
             fig_live.add_trace(go.Scatter(x=[h_state['x']], y=[h_state['y']], mode='markers+text', marker=dict(color='blue', size=24), text=['🚶‍♂️'], textposition="top center", name='Human'))
-            
-            # Active Robot Pos
             fig_live.add_trace(go.Scatter(x=[r_state['x']], y=[r_state['y']], mode='markers+text', marker=dict(color='red', size=24), text=['🤖'], textposition="bottom center", name='Robot'))
 
             fig_live.update_layout(
@@ -545,115 +533,184 @@ with tab8:
             )
 
             map_placeholder.plotly_chart(fig_live, use_container_width=True, key=f"live_map_{frame}")
-            
-            # Control simulation speed
             time.sleep(1.0 / sim_speed)
 
-        st.success("✅ Live Simulation Complete! Notice how the R2G Robot finished significantly faster due to route optimization and faster picking/travel times.")
+        st.success("✅ Live Simulation Complete!")
 
 # ==========================================
 # TAB 9: AnyLogic 2D Process Simulator
 # ==========================================
 with tab9:
     st.header("🔄 2D Process Simulation: Legacy vs. Digital Transformation")
-    st.markdown("An AnyLogic-style state-machine comparison showing the exact process flow differences before and after digital transformation (implementing QR codes & automated R2G routing based on functional locations).")
+    st.markdown("Configure simulation parameters, watch the step-by-step process flow with live time tracking, and view the final KPI comparisons.")
 
-    if st.button("▶️ Run 2D Process Comparison", key="run_2d_sim"):
+    # 1. Parameter Adjustments 
+    with st.expander("⚙️ Simulation Timing Parameters (Seconds)", expanded=True):
+        col_param_h, col_param_r = st.columns(2)
+        with col_param_h:
+            st.markdown("**🚶‍♂️ Legacy (Human) Times**")
+            p_h_stock = st.slider("Manual Stock Check Time", 10, 180, 60, help="Time taken to check ERP/Manual records")
+            p_h_search = st.slider("Stochastic Search Time", 30, 300, 180, help="Time wasted searching through shelves without direct routing")
+            p_h_val = st.slider("Manual Validation Time", 5, 60, 30, help="Reading manual labels to ensure correct part")
+        with col_param_r:
+            st.markdown("**🤖 Transformed (R2G) Times**")
+            p_r_calc = st.slider("Route Calculation Time", 1, 10, 2, help="Instant calculation of direct path")
+            p_r_travel = st.slider("Direct Travel Time", 5, 120, 20, help="Optimized travel straight to functional location")
+            p_r_qr = st.slider("QR Validation Time", 1, 10, 3, help="Instant verification via QR code scan")
+
+    # Timing calculations
+    t_h_0 = 0
+    t_h_1 = t_h_0 + 5 # Machine failure request
+    t_h_2 = t_h_1 + p_h_stock
+    t_h_3 = t_h_2 + p_h_search
+    t_h_4 = t_h_3 + p_h_val
+    t_h_5 = t_h_4 + 5 # Withdraw
+
+    t_r_0 = 0
+    t_r_1 = t_r_0 + 1 # Instant signal
+    t_r_2 = t_r_1 + p_r_calc
+    t_r_3 = t_r_2 + p_r_travel
+    t_r_4 = t_r_3 + p_r_qr
+    t_r_5 = t_r_4 + 2 # Withdraw
+
+    max_sim_time = max(t_h_5, t_r_5)
+
+    if st.button("▶️ Run 2D Process Comparison", key="run_2d_sim_new"):
         st.markdown("---")
         
-        # UI Setup
+        # 2. UI Placeholders setup
         col_human, col_robot = st.columns(2)
         with col_human:
-            st.subheader("🚶‍♂️ Legacy Process (Human)")
-            human_state_ui = st.empty()
+            st.subheader("🚶‍♂️ Legacy Process Flow")
+            human_blocks_ui = st.empty()
         with col_robot:
-            st.subheader("🤖 Transformed Process (R2G Robot)")
-            robot_state_ui = st.empty()
+            st.subheader("🤖 Transformed Process Flow")
+            robot_blocks_ui = st.empty()
 
         st.write("")
         map_ph = st.empty()
+        kpi_ph = st.empty()
 
-        # Target Coordinates
+        # Coordinates definition
         base_loc = (2, 2)
         target_shelf = (16, 16)
 
-        # Human (Legacy) Route Data - Stochastic/Wandering
-        hx_path = [2, 4, 3, 7, 6, 12, 10, 15, 14, 16]
-        hy_path = [2, 5, 8, 7, 12, 10, 15, 13, 17, 16]
+        # Generating path coordinates
+        np.random.seed(42)
+        h_points = 20
+        hx_path = np.linspace(2, 16, h_points) + np.random.normal(0, 2, h_points)
+        hy_path = np.linspace(2, 16, h_points) + np.random.normal(0, 2, h_points)
+        hx_path = np.clip(hx_path, 2, 18)
+        hy_path = np.clip(hy_path, 2, 18)
         
-        # Robot (Digital) Route Data - Direct Line
-        rx_path = np.linspace(2, 16, 5)
-        ry_path = np.linspace(2, 16, 5)
+        rx_path = np.linspace(2, 16, 20)
+        ry_path = np.linspace(2, 16, 20)
 
-        # Trail Trackers
         h_trail_x, h_trail_y = [], []
         r_trail_x, r_trail_y = [], []
 
-        total_ticks = 25
+        frames = 50
         
-        for tick in range(total_ticks + 1):
-            
+        for frame in range(frames + 1):
+            current_time = (frame / frames) * max_sim_time
+
             # -------------------------------------
-            # Human Process Flow Logic
+            # Human Process State Machine & Display
             # -------------------------------------
             h_x, h_y = base_loc
-            if tick <= 2:
-                h_text = "🚨 Machine failure - Part requested"
-            elif tick <= 6:
-                h_text = "💻 Human checks stock manually (Office)"
-            elif tick <= 16:
-                h_text = "🚶‍♂️ Human searching shelves (Stochastic routes)"
-                idx = min(tick - 7, 9)
+            h_status_colors = ["gray"] * 5
+            
+            if current_time <= t_h_1:
+                h_active_step = 0
+                h_status_colors[0] = "blue"
+            elif current_time <= t_h_2:
+                h_active_step = 1
+                h_status_colors[1] = "blue"
+            elif current_time <= t_h_3:
+                h_active_step = 2
+                h_status_colors[2] = "blue"
+                prog = (current_time - t_h_2) / (t_h_3 - t_h_2)
+                idx = int(prog * (h_points - 1))
                 h_x, h_y = hx_path[idx], hy_path[idx]
-            elif tick <= 21:
+            elif current_time <= t_h_4:
+                h_active_step = 3
+                h_status_colors[3] = "blue"
                 h_x, h_y = target_shelf
-                h_text = "📖 Human reads spare parts data manual to validate"
             else:
+                h_active_step = 4
+                h_status_colors[4] = "green"
                 h_x, h_y = target_shelf
-                h_text = "✅ Human withdraws the part"
+
+            for i in range(h_active_step): h_status_colors[i] = "green"
+
+            h_blocks_markdown = f"""
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[0]}; margin-bottom: 5px;'><b>Step 1:</b> Machine failure - part requested ({min(current_time, t_h_1):.1f}s / {t_h_1:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[1]}; margin-bottom: 5px;'><b>Step 2:</b> Human checks stock manually ({min(max(current_time-t_h_1, 0), p_h_stock):.1f}s / {p_h_stock:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[2]}; margin-bottom: 5px;'><b>Step 3:</b> Human searches shelves (Stochastic routes) ({min(max(current_time-t_h_2, 0), p_h_search):.1f}s / {p_h_search:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[3]}; margin-bottom: 5px;'><b>Step 4:</b> Human reads data manual to validate ({min(max(current_time-t_h_3, 0), p_h_val):.1f}s / {p_h_val:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[4]}; margin-bottom: 5px;'><b>Step 5:</b> Human withdraws the part ({min(max(current_time-t_h_4, 0), 5):.1f}s / 5.0s)</div>
+            <h4>Total Time Elapsed: <span style='color:blue'>{min(current_time, t_h_5):.1f} sec</span></h4>
+            """
+            human_blocks_ui.markdown(h_blocks_markdown, unsafe_allow_html=True)
 
             # -------------------------------------
-            # Robot Process Flow Logic
+            # Robot Process State Machine & Display
             # -------------------------------------
             r_x, r_y = base_loc
-            if tick <= 1:
-                r_text = "🚨 Machine failure - Instant signal sent to R2G"
-            elif tick <= 3:
-                r_text = "🧠 R2G receives task & calculates shortest route"
-            elif tick <= 8:
-                r_text = "🤖 R2G travelling direct to functional location"
-                idx = min(tick - 4, 4)
+            r_status_colors = ["gray"] * 5
+            
+            if current_time <= t_r_1:
+                r_active_step = 0
+                r_status_colors[0] = "red"
+            elif current_time <= t_r_2:
+                r_active_step = 1
+                r_status_colors[1] = "red"
+            elif current_time <= t_r_3:
+                r_active_step = 2
+                r_status_colors[2] = "red"
+                prog = (current_time - t_r_2) / (t_r_3 - t_r_2)
+                idx = int(prog * 19)
                 r_x, r_y = rx_path[idx], ry_path[idx]
-            elif tick <= 11:
+            elif current_time <= t_r_4:
+                r_active_step = 3
+                r_status_colors[3] = "red"
                 r_x, r_y = target_shelf
-                r_text = "📷 R2G validates part with QR code at the shelf"
             else:
+                r_active_step = 4
+                r_status_colors[4] = "green"
                 r_x, r_y = target_shelf
-                r_text = "✅ R2G withdraws the part (Task Complete)"
 
-            # Update Trails
-            h_trail_x.append(h_x)
-            h_trail_y.append(h_y)
-            r_trail_x.append(r_x)
-            r_trail_y.append(r_y)
+            # Fill previous steps as green
+            for i in range(r_active_step): r_status_colors[i] = "green"
 
-            # Update State Text Boxes
-            human_state_ui.info(f"**Current Action:** {h_text}")
-            if "Complete" in r_text or "withdraws" in r_text:
-                robot_state_ui.success(f"**Current Action:** {r_text}")
-            else:
-                robot_state_ui.info(f"**Current Action:** {r_text}")
+            r_blocks_markdown = f"""
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[0]}; margin-bottom: 5px;'><b>Step 1:</b> Instant signal sent to R2G ({min(current_time, t_r_1):.1f}s / {t_r_1:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[1]}; margin-bottom: 5px;'><b>Step 2:</b> R2G receives task & calculates route ({min(max(current_time-t_r_1, 0), p_r_calc):.1f}s / {p_r_calc:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[2]}; margin-bottom: 5px;'><b>Step 3:</b> R2G traveling direct to location ({min(max(current_time-t_r_2, 0), p_r_travel):.1f}s / {p_r_travel:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[3]}; margin-bottom: 5px;'><b>Step 4:</b> R2G validates part with QR code ({min(max(current_time-t_r_3, 0), p_r_qr):.1f}s / {p_r_qr:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[4]}; margin-bottom: 5px;'><b>Step 5:</b> R2G withdraws the part ({min(max(current_time-t_r_4, 0), 2):.1f}s / 2.0s)</div>
+            <h4>Total Time Elapsed: <span style='color:red'>{min(current_time, t_r_5):.1f} sec</span></h4>
+            """
+            robot_blocks_ui.markdown(r_blocks_markdown, unsafe_allow_html=True)
+
+            # Update Trails if still moving
+            if current_time <= t_h_5:
+                h_trail_x.append(h_x)
+                h_trail_y.append(h_y)
+            if current_time <= t_r_5:
+                r_trail_x.append(r_x)
+                r_trail_y.append(r_y)
 
             # -------------------------------------
             # Plotly State Map Generation
             # -------------------------------------
             fig = go.Figure()
 
-            # Background Shelving Grid
+            # Background Shelves
             x_grid, y_grid = np.meshgrid(range(0, 20, 2), range(0, 20, 2))
             fig.add_trace(go.Scatter(x=x_grid.flatten(), y=y_grid.flatten(), mode='markers', marker=dict(color='lightgray', size=4, symbol='square'), name='Shelves'))
 
-            # Trails (Path History)
+            # Trails
             fig.add_trace(go.Scatter(x=h_trail_x, y=h_trail_y, mode='lines', line=dict(color='blue', dash='dot', width=2), opacity=0.5, name='Human Path'))
             fig.add_trace(go.Scatter(x=r_trail_x, y=r_trail_y, mode='lines', line=dict(color='red', width=3), opacity=0.5, name='Robot Path'))
 
@@ -661,7 +718,7 @@ with tab9:
             fig.add_trace(go.Scatter(x=[2], y=[2], mode='markers+text', text=['Office/Base'], textposition='bottom right', marker=dict(size=15, color='orange', symbol='square'), name='Base'))
             fig.add_trace(go.Scatter(x=[16], y=[16], mode='markers+text', text=['Target Shelf (QR)'], textposition='top left', marker=dict(size=15, color='purple', symbol='star'), name='Target'))
 
-            # Moving Entities (Human and Robot)
+            # Moving Entities
             fig.add_trace(go.Scatter(x=[h_x], y=[h_y], mode='markers+text', text=['🚶‍♂️'], textposition='top center', marker=dict(size=24, color='blue'), name='Human'))
             fig.add_trace(go.Scatter(x=[r_x], y=[r_y], mode='markers+text', text=['🤖'], textposition='bottom center', marker=dict(size=24, color='red'), name='Robot'))
 
@@ -673,12 +730,33 @@ with tab9:
                 showlegend=False
             )
             
-            map_ph.plotly_chart(fig, use_container_width=True, key=f"sim2d_map_{tick}")
-            
-            # Animation Tick Speed
-            time.sleep(0.4)
+            map_ph.plotly_chart(fig, use_container_width=True, key=f"sim2d_map_{frame}")
+            time.sleep(0.1) # Fast smooth playback
         
-        st.success("✅ **Process Comparison Complete:** Digital transportation fundamentally eliminates manual stock checking, stochastic search time, and manual validation delays.")
+        # -------------------------------------
+        # Final KPI Comparison Dashboard
+        # -------------------------------------
+        st.markdown("---")
+        st.header("📊 Final Process Comparison & ROI KPIs")
+        
+        time_saved = t_h_5 - t_r_5
+        efficiency_gain = (time_saved / t_h_5) * 100 if t_h_5 > 0 else 0
+
+        k1, k2, k3 = st.columns(3)
+        k1.metric(label="Total Legacy Time", value=f"{t_h_5:.1f} sec")
+        k2.metric(label="Total Transformed Time", value=f"{t_r_5:.1f} sec", delta=f"-{time_saved:.1f} sec (Faster)")
+        k3.metric(label="Process Efficiency Increase", value=f"{efficiency_gain:.1f} %", delta="Positive Impact")
+
+        df_compare = pd.DataFrame({
+            "Process Phase": ["Request/Signal", "Data Processing", "Routing & Travel", "Validation", "Withdrawal"],
+            "Human Time (sec)": [5, p_h_stock, p_h_search, p_h_val, 5],
+            "R2G Robot Time (sec)": [1, p_r_calc, p_r_travel, p_r_qr, 2]
+        })
+
+        fig_kpi = px.bar(df_compare, x="Process Phase", y=["Human Time (sec)", "R2G Robot Time (sec)"], 
+                         barmode='group', title="Time Consumption Breakdown by Phase",
+                         color_discrete_map={"Human Time (sec)": "blue", "R2G Robot Time (sec)": "red"})
+        st.plotly_chart(fig_kpi, use_container_width=True)
 
 
 
