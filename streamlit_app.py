@@ -549,7 +549,7 @@ with tab9:
         col_main1, col_main2 = st.columns(2)
         with col_main1:
             num_parts_2d = st.slider("📦 Required Parts (Work Order Size)", min_value=1, max_value=15, value=5, help="Number of distinct parts required to fix the machine breakdown.")
-            sim_speed_2d = st.slider("⚡ Simulation Playback Speed", min_value=0.1, max_value=10.0, value=3.0, step=0.1, help="Speed up or slow down the visual animation.")
+            sim_speed_2d = st.slider("⚡ Simulation Playback Speed", min_value=0.1, max_value=1000.0, value=3.0, step=0.1, help="Speed up or slow down the visual animation.")
         
         st.write("---")
         
