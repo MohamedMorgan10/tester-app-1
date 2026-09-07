@@ -544,34 +544,41 @@ with tab9:
     st.header("🔄 2D Process Simulation: Legacy vs. Digital Transformation")
     st.markdown("Configure simulation parameters, watch the step-by-step process flow with live time tracking, and view the final KPI comparisons.")
 
-    # 1. Parameter Adjustments 
-    with st.expander("⚙️ Simulation Timing Parameters (Seconds)", expanded=True):
+    # 1. Parameter Adjustments (Added Parts & Speed Controllers)
+    with st.expander("⚙️ Simulation Settings & Base Timing Parameters", expanded=True):
+        col_main1, col_main2 = st.columns(2)
+        with col_main1:
+            num_parts_2d = st.slider("📦 Required Parts (Work Order Size)", min_value=1, max_value=15, value=5, help="Number of distinct parts required to fix the machine breakdown.")
+            sim_speed_2d = st.slider("⚡ Simulation Playback Speed", min_value=1.0, max_value=10.0, value=3.0, step=0.5, help="Speed up the visual animation of the process.")
+        
+        st.write("---")
+        
         col_param_h, col_param_r = st.columns(2)
         with col_param_h:
-            st.markdown("**🚶‍♂️ Legacy (Human) Times**")
-            p_h_stock = st.slider("Manual Stock Check Time", 10, 180, 60, help="Time taken to check ERP/Manual records")
-            p_h_search = st.slider("Stochastic Search Time", 30, 300, 180, help="Time wasted searching through shelves without direct routing")
+            st.markdown("**🚶‍♂️ Legacy Base Times (Per Part in sec)**")
+            p_h_stock = st.slider("Manual Stock Check Time", 10, 180, 60, help="Time taken to check ERP/Manual records per part")
+            p_h_search = st.slider("Stochastic Search Time", 30, 300, 180, help="Time wasted searching through shelves without direct routing per part")
             p_h_val = st.slider("Manual Validation Time", 5, 60, 30, help="Reading manual labels to ensure correct part")
         with col_param_r:
-            st.markdown("**🤖 Transformed (R2G) Times**")
-            p_r_calc = st.slider("Route Calculation Time", 1, 10, 2, help="Instant calculation of direct path")
-            p_r_travel = st.slider("Direct Travel Time", 5, 120, 20, help="Optimized travel straight to functional location")
-            p_r_qr = st.slider("QR Validation Time", 1, 10, 3, help="Instant verification via QR code scan")
+            st.markdown("**🤖 Transformed Base Times (Per Part in sec)**")
+            p_r_calc = st.slider("Route Calculation Time", 1, 10, 2, help="Instant calculation of direct path per part")
+            p_r_travel = st.slider("Direct Travel Time", 5, 120, 20, help="Optimized travel straight to functional location per part")
+            p_r_qr = st.slider("QR Validation Time", 1, 10, 3, help="Instant verification via QR code scan per part")
 
-    # Timing calculations
+    # Time Scaling Calculations based on Number of Parts
     t_h_0 = 0
-    t_h_1 = t_h_0 + 5 # Machine failure request
-    t_h_2 = t_h_1 + p_h_stock
-    t_h_3 = t_h_2 + p_h_search
-    t_h_4 = t_h_3 + p_h_val
-    t_h_5 = t_h_4 + 5 # Withdraw
+    t_h_1 = t_h_0 + 5 # Base Request
+    t_h_2 = t_h_1 + (p_h_stock * num_parts_2d)
+    t_h_3 = t_h_2 + (p_h_search * num_parts_2d)
+    t_h_4 = t_h_3 + (p_h_val * num_parts_2d)
+    t_h_5 = t_h_4 + (5 * num_parts_2d) # Withdraw
 
     t_r_0 = 0
-    t_r_1 = t_r_0 + 1 # Instant signal
-    t_r_2 = t_r_1 + p_r_calc
-    t_r_3 = t_r_2 + p_r_travel
-    t_r_4 = t_r_3 + p_r_qr
-    t_r_5 = t_r_4 + 2 # Withdraw
+    t_r_1 = t_r_0 + 1 # Instant Signal
+    t_r_2 = t_r_1 + (p_r_calc * 1) # Route calculated once universally
+    t_r_3 = t_r_2 + (p_r_travel * num_parts_2d)
+    t_r_4 = t_r_3 + (p_r_qr * num_parts_2d)
+    t_r_5 = t_r_4 + (2 * num_parts_2d) # Withdraw
 
     max_sim_time = max(t_h_5, t_r_5)
 
@@ -589,28 +596,47 @@ with tab9:
 
         st.write("")
         map_ph = st.empty()
-        kpi_ph = st.empty()
 
-        # Coordinates definition
-        base_loc = (2, 2)
-        target_shelf = (16, 16)
-
-        # Generating path coordinates
+        # Generate Random Coordinates for 'num_parts_2d' targets
         np.random.seed(42)
-        h_points = 20
-        hx_path = np.linspace(2, 16, h_points) + np.random.normal(0, 2, h_points)
-        hy_path = np.linspace(2, 16, h_points) + np.random.normal(0, 2, h_points)
-        hx_path = np.clip(hx_path, 2, 18)
-        hy_path = np.clip(hy_path, 2, 18)
+        base_loc = (2, 2)
+        target_coords = [(np.random.randint(4, 18), np.random.randint(4, 18)) for _ in range(num_parts_2d)]
+
+        # Human Path Generation (Stochastic/Wandering)
+        h_anchors_x, h_anchors_y = [2], [2]
+        sorted_targets = sorted(target_coords, key=lambda p: (p[1], p[0])) # By Y, then X
+        for tx, ty in sorted_targets:
+            h_anchors_x.append(tx + np.random.randint(-2, 3)) # Add wandering noise
+            h_anchors_y.append(ty + np.random.randint(-2, 3))
+            h_anchors_x.append(tx)
+            h_anchors_y.append(ty)
         
-        rx_path = np.linspace(2, 16, 20)
-        ry_path = np.linspace(2, 16, 20)
+        # Robot Path Generation (Optimized TSP)
+        r_anchors_x, r_anchors_y = [2], [2]
+        curr = (2, 2)
+        unvisited = list(target_coords)
+        while unvisited:
+            nxt = min(unvisited, key=lambda p: abs(p[0]-curr[0]) + abs(p[1]-curr[1]))
+            r_anchors_x.append(nxt[0])
+            r_anchors_y.append(nxt[1])
+            unvisited.remove(nxt)
+            curr = nxt
+            
+        # Interpolate paths cleanly to 100 timeline steps
+        idx_floats_h = np.linspace(0, len(h_anchors_x)-1, 100)
+        hx_path = np.interp(idx_floats_h, range(len(h_anchors_x)), h_anchors_x)
+        hy_path = np.interp(idx_floats_h, range(len(h_anchors_y)), h_anchors_y)
+        
+        idx_floats_r = np.linspace(0, len(r_anchors_x)-1, 100)
+        rx_path = np.interp(idx_floats_r, range(len(r_anchors_x)), r_anchors_x)
+        ry_path = np.interp(idx_floats_r, range(len(r_anchors_y)), r_anchors_y)
 
         h_trail_x, h_trail_y = [], []
         r_trail_x, r_trail_y = [], []
-
-        frames = 50
         
+        # Determine total frames based on max time & playback speed to keep animation smooth
+        frames = 60
+
         for frame in range(frames + 1):
             current_time = (frame / frames) * max_sim_time
 
@@ -630,26 +656,26 @@ with tab9:
                 h_active_step = 2
                 h_status_colors[2] = "blue"
                 prog = (current_time - t_h_2) / (t_h_3 - t_h_2)
-                idx = int(prog * (h_points - 1))
+                idx = int(prog * 99)
                 h_x, h_y = hx_path[idx], hy_path[idx]
             elif current_time <= t_h_4:
                 h_active_step = 3
                 h_status_colors[3] = "blue"
-                h_x, h_y = target_shelf
+                h_x, h_y = hx_path[-1] # Stay at last part
             else:
                 h_active_step = 4
                 h_status_colors[4] = "green"
-                h_x, h_y = target_shelf
+                h_x, h_y = hx_path[-1]
 
             for i in range(h_active_step): h_status_colors[i] = "green"
 
             h_blocks_markdown = f"""
-            <div style='padding:10px; border-left: 4px solid {h_status_colors[0]}; margin-bottom: 5px;'><b>Step 1:</b> Machine failure - part requested ({min(current_time, t_h_1):.1f}s / {t_h_1:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {h_status_colors[1]}; margin-bottom: 5px;'><b>Step 2:</b> Human checks stock manually ({min(max(current_time-t_h_1, 0), p_h_stock):.1f}s / {p_h_stock:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {h_status_colors[2]}; margin-bottom: 5px;'><b>Step 3:</b> Human searches shelves (Stochastic routes) ({min(max(current_time-t_h_2, 0), p_h_search):.1f}s / {p_h_search:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {h_status_colors[3]}; margin-bottom: 5px;'><b>Step 4:</b> Human reads data manual to validate ({min(max(current_time-t_h_3, 0), p_h_val):.1f}s / {p_h_val:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {h_status_colors[4]}; margin-bottom: 5px;'><b>Step 5:</b> Human withdraws the part ({min(max(current_time-t_h_4, 0), 5):.1f}s / 5.0s)</div>
-            <h4>Total Time Elapsed: <span style='color:blue'>{min(current_time, t_h_5):.1f} sec</span></h4>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[0]}; margin-bottom: 5px;'><b>Step 1:</b> Machine failure - request <b>{num_parts_2d}</b> parts ({min(current_time, t_h_1):.1f}s / {t_h_1:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[1]}; margin-bottom: 5px;'><b>Step 2:</b> Human checks stock manually ({min(max(current_time-t_h_1, 0), p_h_stock * num_parts_2d):.1f}s / {p_h_stock * num_parts_2d:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[2]}; margin-bottom: 5px;'><b>Step 3:</b> Search shelves (Stochastic routing) ({min(max(current_time-t_h_2, 0), p_h_search * num_parts_2d):.1f}s / {p_h_search * num_parts_2d:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[3]}; margin-bottom: 5px;'><b>Step 4:</b> Human reads data manual to validate ({min(max(current_time-t_h_3, 0), p_h_val * num_parts_2d):.1f}s / {p_h_val * num_parts_2d:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[4]}; margin-bottom: 5px;'><b>Step 5:</b> Human withdraws parts ({min(max(current_time-t_h_4, 0), 5 * num_parts_2d):.1f}s / {5 * num_parts_2d:.1f}s)</div>
+            <h4>Total Legacy Elapsed: <span style='color:blue'>{min(current_time, t_h_5):.1f} sec</span></h4>
             """
             human_blocks_ui.markdown(h_blocks_markdown, unsafe_allow_html=True)
 
@@ -669,27 +695,26 @@ with tab9:
                 r_active_step = 2
                 r_status_colors[2] = "red"
                 prog = (current_time - t_r_2) / (t_r_3 - t_r_2)
-                idx = int(prog * 19)
+                idx = int(prog * 99)
                 r_x, r_y = rx_path[idx], ry_path[idx]
             elif current_time <= t_r_4:
                 r_active_step = 3
                 r_status_colors[3] = "red"
-                r_x, r_y = target_shelf
+                r_x, r_y = rx_path[-1]
             else:
                 r_active_step = 4
                 r_status_colors[4] = "green"
-                r_x, r_y = target_shelf
+                r_x, r_y = rx_path[-1]
 
-            # Fill previous steps as green
             for i in range(r_active_step): r_status_colors[i] = "green"
 
             r_blocks_markdown = f"""
             <div style='padding:10px; border-left: 4px solid {r_status_colors[0]}; margin-bottom: 5px;'><b>Step 1:</b> Instant signal sent to R2G ({min(current_time, t_r_1):.1f}s / {t_r_1:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {r_status_colors[1]}; margin-bottom: 5px;'><b>Step 2:</b> R2G receives task & calculates route ({min(max(current_time-t_r_1, 0), p_r_calc):.1f}s / {p_r_calc:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {r_status_colors[2]}; margin-bottom: 5px;'><b>Step 3:</b> R2G traveling direct to location ({min(max(current_time-t_r_2, 0), p_r_travel):.1f}s / {p_r_travel:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {r_status_colors[3]}; margin-bottom: 5px;'><b>Step 4:</b> R2G validates part with QR code ({min(max(current_time-t_r_3, 0), p_r_qr):.1f}s / {p_r_qr:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {r_status_colors[4]}; margin-bottom: 5px;'><b>Step 5:</b> R2G withdraws the part ({min(max(current_time-t_r_4, 0), 2):.1f}s / 2.0s)</div>
-            <h4>Total Time Elapsed: <span style='color:red'>{min(current_time, t_r_5):.1f} sec</span></h4>
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[1]}; margin-bottom: 5px;'><b>Step 2:</b> R2G receives task & calculates TSP route ({min(max(current_time-t_r_1, 0), p_r_calc):.1f}s / {p_r_calc:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[2]}; margin-bottom: 5px;'><b>Step 3:</b> R2G traveling direct to locations ({min(max(current_time-t_r_2, 0), p_r_travel * num_parts_2d):.1f}s / {p_r_travel * num_parts_2d:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[3]}; margin-bottom: 5px;'><b>Step 4:</b> R2G validates parts with QR code ({min(max(current_time-t_r_3, 0), p_r_qr * num_parts_2d):.1f}s / {p_r_qr * num_parts_2d:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[4]}; margin-bottom: 5px;'><b>Step 5:</b> R2G withdraws parts ({min(max(current_time-t_r_4, 0), 2 * num_parts_2d):.1f}s / {2 * num_parts_2d:.1f}s)</div>
+            <h4>Total R2G Elapsed: <span style='color:red'>{min(current_time, t_r_5):.1f} sec</span></h4>
             """
             robot_blocks_ui.markdown(r_blocks_markdown, unsafe_allow_html=True)
 
@@ -716,7 +741,17 @@ with tab9:
 
             # Anchor Locations
             fig.add_trace(go.Scatter(x=[2], y=[2], mode='markers+text', text=['Office/Base'], textposition='bottom right', marker=dict(size=15, color='orange', symbol='square'), name='Base'))
-            fig.add_trace(go.Scatter(x=[16], y=[16], mode='markers+text', text=['Target Shelf (QR)'], textposition='top left', marker=dict(size=15, color='purple', symbol='star'), name='Target'))
+            
+            # Dynamic Target Shelves
+            fig.add_trace(go.Scatter(
+                x=[t[0] for t in target_coords], 
+                y=[t[1] for t in target_coords], 
+                mode='markers+text', 
+                text=[f"P{i+1}" for i in range(num_parts_2d)], 
+                textposition='top left', 
+                marker=dict(size=12, color='purple', symbol='star', line=dict(color='black', width=1)), 
+                name='Target Parts'
+            ))
 
             # Moving Entities
             fig.add_trace(go.Scatter(x=[h_x], y=[h_y], mode='markers+text', text=['🚶‍♂️'], textposition='top center', marker=dict(size=24, color='blue'), name='Human'))
@@ -731,7 +766,9 @@ with tab9:
             )
             
             map_ph.plotly_chart(fig, use_container_width=True, key=f"sim2d_map_{frame}")
-            time.sleep(0.1) # Fast smooth playback
+            
+            # Simulation playback controller
+            time.sleep(0.5 / sim_speed_2d) 
         
         # -------------------------------------
         # Final KPI Comparison Dashboard
@@ -749,8 +786,8 @@ with tab9:
 
         df_compare = pd.DataFrame({
             "Process Phase": ["Request/Signal", "Data Processing", "Routing & Travel", "Validation", "Withdrawal"],
-            "Human Time (sec)": [5, p_h_stock, p_h_search, p_h_val, 5],
-            "R2G Robot Time (sec)": [1, p_r_calc, p_r_travel, p_r_qr, 2]
+            "Human Time (sec)": [5, p_h_stock * num_parts_2d, p_h_search * num_parts_2d, p_h_val * num_parts_2d, 5 * num_parts_2d],
+            "R2G Robot Time (sec)": [1, p_r_calc, p_r_travel * num_parts_2d, p_r_qr * num_parts_2d, 2 * num_parts_2d]
         })
 
         fig_kpi = px.bar(df_compare, x="Process Phase", y=["Human Time (sec)", "R2G Robot Time (sec)"], 
