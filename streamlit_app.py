@@ -79,7 +79,7 @@ df_usg_filtered = df_usage[df_usage['Line'].isin(selected_lines)]
 # ---------------------------------------------------------
 # Analytics Functions & UI Tabs
 # ---------------------------------------------------------
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "📊 Descriptive", 
     "🔍 Diagnostic", 
     "⏱️ Predictive (Repair Time)", 
@@ -87,7 +87,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "💊 Prescriptive",
     "📈 AI Forecasting",
     "🤖 3D Static Routes",
-    "▶️ Live Simulator"
+    "▶️ Live Simulator",
+    "🔄 2D Process Sim"
 ])
 
 # ==========================================
@@ -549,6 +550,135 @@ with tab8:
             time.sleep(1.0 / sim_speed)
 
         st.success("✅ Live Simulation Complete! Notice how the R2G Robot finished significantly faster due to route optimization and faster picking/travel times.")
+
+# ==========================================
+# TAB 9: AnyLogic 2D Process Simulator
+# ==========================================
+with tab9:
+    st.header("🔄 2D Process Simulation: Legacy vs. Digital Transformation")
+    st.markdown("An AnyLogic-style state-machine comparison showing the exact process flow differences before and after digital transformation (implementing QR codes & automated R2G routing based on functional locations).")
+
+    if st.button("▶️ Run 2D Process Comparison", key="run_2d_sim"):
+        st.markdown("---")
+        
+        # UI Setup
+        col_human, col_robot = st.columns(2)
+        with col_human:
+            st.subheader("🚶‍♂️ Legacy Process (Human)")
+            human_state_ui = st.empty()
+        with col_robot:
+            st.subheader("🤖 Transformed Process (R2G Robot)")
+            robot_state_ui = st.empty()
+
+        st.write("")
+        map_ph = st.empty()
+
+        # Target Coordinates
+        base_loc = (2, 2)
+        target_shelf = (16, 16)
+
+        # Human (Legacy) Route Data - Stochastic/Wandering
+        hx_path = [2, 4, 3, 7, 6, 12, 10, 15, 14, 16]
+        hy_path = [2, 5, 8, 7, 12, 10, 15, 13, 17, 16]
+        
+        # Robot (Digital) Route Data - Direct Line
+        rx_path = np.linspace(2, 16, 5)
+        ry_path = np.linspace(2, 16, 5)
+
+        # Trail Trackers
+        h_trail_x, h_trail_y = [], []
+        r_trail_x, r_trail_y = [], []
+
+        total_ticks = 25
+        
+        for tick in range(total_ticks + 1):
+            
+            # -------------------------------------
+            # Human Process Flow Logic
+            # -------------------------------------
+            h_x, h_y = base_loc
+            if tick <= 2:
+                h_text = "🚨 Machine failure - Part requested"
+            elif tick <= 6:
+                h_text = "💻 Human checks stock manually (Office)"
+            elif tick <= 16:
+                h_text = "🚶‍♂️ Human searching shelves (Stochastic routes)"
+                idx = min(tick - 7, 9)
+                h_x, h_y = hx_path[idx], hy_path[idx]
+            elif tick <= 21:
+                h_x, h_y = target_shelf
+                h_text = "📖 Human reads spare parts data manual to validate"
+            else:
+                h_x, h_y = target_shelf
+                h_text = "✅ Human withdraws the part"
+
+            # -------------------------------------
+            # Robot Process Flow Logic
+            # -------------------------------------
+            r_x, r_y = base_loc
+            if tick <= 1:
+                r_text = "🚨 Machine failure - Instant signal sent to R2G"
+            elif tick <= 3:
+                r_text = "🧠 R2G receives task & calculates shortest route"
+            elif tick <= 8:
+                r_text = "🤖 R2G travelling direct to functional location"
+                idx = min(tick - 4, 4)
+                r_x, r_y = rx_path[idx], ry_path[idx]
+            elif tick <= 11:
+                r_x, r_y = target_shelf
+                r_text = "📷 R2G validates part with QR code at the shelf"
+            else:
+                r_x, r_y = target_shelf
+                r_text = "✅ R2G withdraws the part (Task Complete)"
+
+            # Update Trails
+            h_trail_x.append(h_x)
+            h_trail_y.append(h_y)
+            r_trail_x.append(r_x)
+            r_trail_y.append(r_y)
+
+            # Update State Text Boxes
+            human_state_ui.info(f"**Current Action:** {h_text}")
+            if "Complete" in r_text or "withdraws" in r_text:
+                robot_state_ui.success(f"**Current Action:** {r_text}")
+            else:
+                robot_state_ui.info(f"**Current Action:** {r_text}")
+
+            # -------------------------------------
+            # Plotly State Map Generation
+            # -------------------------------------
+            fig = go.Figure()
+
+            # Background Shelving Grid
+            x_grid, y_grid = np.meshgrid(range(0, 20, 2), range(0, 20, 2))
+            fig.add_trace(go.Scatter(x=x_grid.flatten(), y=y_grid.flatten(), mode='markers', marker=dict(color='lightgray', size=4, symbol='square'), name='Shelves'))
+
+            # Trails (Path History)
+            fig.add_trace(go.Scatter(x=h_trail_x, y=h_trail_y, mode='lines', line=dict(color='blue', dash='dot', width=2), opacity=0.5, name='Human Path'))
+            fig.add_trace(go.Scatter(x=r_trail_x, y=r_trail_y, mode='lines', line=dict(color='red', width=3), opacity=0.5, name='Robot Path'))
+
+            # Anchor Locations
+            fig.add_trace(go.Scatter(x=[2], y=[2], mode='markers+text', text=['Office/Base'], textposition='bottom right', marker=dict(size=15, color='orange', symbol='square'), name='Base'))
+            fig.add_trace(go.Scatter(x=[16], y=[16], mode='markers+text', text=['Target Shelf (QR)'], textposition='top left', marker=dict(size=15, color='purple', symbol='star'), name='Target'))
+
+            # Moving Entities (Human and Robot)
+            fig.add_trace(go.Scatter(x=[h_x], y=[h_y], mode='markers+text', text=['🚶‍♂️'], textposition='top center', marker=dict(size=24, color='blue'), name='Human'))
+            fig.add_trace(go.Scatter(x=[r_x], y=[r_y], mode='markers+text', text=['🤖'], textposition='bottom center', marker=dict(size=24, color='red'), name='Robot'))
+
+            fig.update_layout(
+                height=500,
+                xaxis=dict(range=[-1, 19], showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(range=[-1, 19], showgrid=False, zeroline=False, showticklabels=False),
+                margin=dict(l=0, r=0, t=0, b=0),
+                showlegend=False
+            )
+            
+            map_ph.plotly_chart(fig, use_container_width=True, key=f"sim2d_map_{tick}")
+            
+            # Animation Tick Speed
+            time.sleep(0.4)
+        
+        st.success("✅ **Process Comparison Complete:** Digital transportation fundamentally eliminates manual stock checking, stochastic search time, and manual validation delays.")
 
 
 
