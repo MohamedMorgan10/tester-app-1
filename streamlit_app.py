@@ -661,11 +661,11 @@ with tab9:
             elif current_time <= t_h_4:
                 h_active_step = 3
                 h_status_colors[3] = "blue"
-                h_x, h_y = hx_path[-1] # Stay at last part
+                h_x, h_y = hx_path[-1], hy_path[-1] # Stay at last part
             else:
                 h_active_step = 4
                 h_status_colors[4] = "green"
-                h_x, h_y = hx_path[-1]
+                h_x, h_y = hx_path[-1], hy_path[-1]
 
             for i in range(h_active_step): h_status_colors[i] = "green"
 
@@ -700,11 +700,11 @@ with tab9:
             elif current_time <= t_r_4:
                 r_active_step = 3
                 r_status_colors[3] = "red"
-                r_x, r_y = rx_path[-1]
+                r_x, r_y = rx_path[-1], ry_path[-1]
             else:
                 r_active_step = 4
                 r_status_colors[4] = "green"
-                r_x, r_y = rx_path[-1]
+                r_x, r_y = rx_path[-1], ry_path[-1]
 
             for i in range(r_active_step): r_status_colors[i] = "green"
 
