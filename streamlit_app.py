@@ -544,12 +544,12 @@ with tab9:
     st.header("🔄 2D Process Simulation: Legacy vs. Digital Transformation")
     st.markdown("Configure simulation parameters, watch the step-by-step process flow with live time tracking, and view the final KPI comparisons.")
 
-    # 1. Parameter Adjustments (Added Parts & Speed Controllers)
+    # 1. Parameter Adjustments
     with st.expander("⚙️ Simulation Settings & Base Timing Parameters", expanded=True):
         col_main1, col_main2 = st.columns(2)
         with col_main1:
             num_parts_2d = st.slider("📦 Required Parts (Work Order Size)", min_value=1, max_value=15, value=5, help="Number of distinct parts required to fix the machine breakdown.")
-            sim_speed_2d = st.slider("⚡ Simulation Playback Speed", min_value=1.0, max_value=10.0, value=3.0, step=0.5, help="Speed up the visual animation of the process.")
+            sim_speed_2d = st.slider("⚡ Simulation Playback Speed", min_value=0.1, max_value=10.0, value=3.0, step=0.1, help="Speed up or slow down the visual animation.")
         
         st.write("---")
         
@@ -602,123 +602,176 @@ with tab9:
         base_loc = (2, 2)
         target_coords = [(np.random.randint(4, 18), np.random.randint(4, 18)) for _ in range(num_parts_2d)]
 
-        # Human Path Generation (Stochastic/Wandering)
-        h_anchors_x, h_anchors_y = [2], [2]
-        sorted_targets = sorted(target_coords, key=lambda p: (p[1], p[0])) # By Y, then X
-        for tx, ty in sorted_targets:
-            h_anchors_x.append(tx + np.random.randint(-2, 3)) # Add wandering noise
-            h_anchors_y.append(ty + np.random.randint(-2, 3))
-            h_anchors_x.append(tx)
-            h_anchors_y.append(ty)
+        # Human Target Sequence (Wandering/Stochastic)
+        h_targets = sorted(target_coords, key=lambda p: (p[1], p[0])) # Sorted loosely by Y then X
         
-        # Robot Path Generation (Optimized TSP)
-        r_anchors_x, r_anchors_y = [2], [2]
-        curr = (2, 2)
+        # Robot Target Sequence (Optimized TSP)
+        r_targets = []
         unvisited = list(target_coords)
+        curr = base_loc
         while unvisited:
             nxt = min(unvisited, key=lambda p: abs(p[0]-curr[0]) + abs(p[1]-curr[1]))
-            r_anchors_x.append(nxt[0])
-            r_anchors_y.append(nxt[1])
+            r_targets.append(nxt)
             unvisited.remove(nxt)
             curr = nxt
             
-        # Interpolate paths cleanly to 100 timeline steps
-        idx_floats_h = np.linspace(0, len(h_anchors_x)-1, 100)
-        hx_path = np.interp(idx_floats_h, range(len(h_anchors_x)), h_anchors_x)
-        hy_path = np.interp(idx_floats_h, range(len(h_anchors_y)), h_anchors_y)
-        
-        idx_floats_r = np.linspace(0, len(r_anchors_x)-1, 100)
-        rx_path = np.interp(idx_floats_r, range(len(r_anchors_x)), r_anchors_x)
-        ry_path = np.interp(idx_floats_r, range(len(r_anchors_y)), r_anchors_y)
-
         h_trail_x, h_trail_y = [], []
         r_trail_x, r_trail_y = [], []
         
-        # Determine total frames based on max time & playback speed to keep animation smooth
-        frames = 60
+        frames = 100 # Frames loop for smooth interpolation
 
         for frame in range(frames + 1):
             current_time = (frame / frames) * max_sim_time
 
             # -------------------------------------
-            # Human Process State Machine & Display
+            # Human Process Flow & Interleaved Logic
             # -------------------------------------
+            h_total_search, h_total_val, h_total_with = 0, 0, 0
+            time_in_field_h = max(0, current_time - t_h_2)
+            time_per_part_h = p_h_search + p_h_val + 5
+            
             h_x, h_y = base_loc
             h_status_colors = ["gray"] * 5
-            
+            h_picked_status = [False] * num_parts_2d
+
             if current_time <= t_h_1:
-                h_active_step = 0
                 h_status_colors[0] = "blue"
             elif current_time <= t_h_2:
-                h_active_step = 1
+                h_status_colors[0] = "green"
                 h_status_colors[1] = "blue"
-            elif current_time <= t_h_3:
-                h_active_step = 2
-                h_status_colors[2] = "blue"
-                prog = (current_time - t_h_2) / (t_h_3 - t_h_2)
-                idx = int(prog * 99)
-                h_x, h_y = hx_path[idx], hy_path[idx]
-            elif current_time <= t_h_4:
-                h_active_step = 3
-                h_status_colors[3] = "blue"
-                h_x, h_y = hx_path[-1], hy_path[-1] # Stay at last part
             else:
-                h_active_step = 4
-                h_status_colors[4] = "green"
-                h_x, h_y = hx_path[-1], hy_path[-1]
-
-            for i in range(h_active_step): h_status_colors[i] = "green"
+                h_status_colors[0] = "green"
+                h_status_colors[1] = "green"
+                
+                if current_time >= t_h_5:
+                    h_status_colors = ["green"] * 5
+                    h_x, h_y = h_targets[-1]
+                    h_picked_status = [True] * num_parts_2d
+                    h_total_search = p_h_search * num_parts_2d
+                    h_total_val = p_h_val * num_parts_2d
+                    h_total_with = 5 * num_parts_2d
+                else:
+                    idx_h = int(time_in_field_h // time_per_part_h)
+                    part_time_h = time_in_field_h % time_per_part_h
+                    
+                    h_total_search = idx_h * p_h_search
+                    h_total_val = idx_h * p_h_val
+                    h_total_with = idx_h * 5
+                    
+                    for i in range(idx_h): h_picked_status[i] = True
+                    
+                    prev_loc = base_loc if idx_h == 0 else h_targets[idx_h - 1]
+                    curr_loc = h_targets[idx_h]
+                    
+                    if part_time_h <= p_h_search:
+                        h_status_colors[2] = "blue"
+                        h_total_search += part_time_h
+                        
+                        prog = part_time_h / p_h_search
+                        wander_x = np.sin(prog * np.pi) * 1.5
+                        wander_y = np.cos(prog * np.pi) * 1.5
+                        h_x = prev_loc[0] + (curr_loc[0] - prev_loc[0]) * prog + wander_x
+                        h_y = prev_loc[1] + (curr_loc[1] - prev_loc[1]) * prog + wander_y
+                    elif part_time_h <= p_h_search + p_h_val:
+                        h_status_colors[2] = "green"
+                        h_status_colors[3] = "blue"
+                        h_total_search += p_h_search
+                        h_total_val += (part_time_h - p_h_search)
+                        h_x, h_y = curr_loc
+                    else:
+                        h_status_colors[2] = "green"
+                        h_status_colors[3] = "green"
+                        h_status_colors[4] = "blue"
+                        h_total_search += p_h_search
+                        h_total_val += p_h_val
+                        h_total_with += (part_time_h - p_h_search - p_h_val)
+                        h_x, h_y = curr_loc
+                        if part_time_h >= time_per_part_h - 0.1: h_picked_status[idx_h] = True
 
             h_blocks_markdown = f"""
             <div style='padding:10px; border-left: 4px solid {h_status_colors[0]}; margin-bottom: 5px;'><b>Step 1:</b> Machine failure - request <b>{num_parts_2d}</b> parts ({min(current_time, t_h_1):.1f}s / {t_h_1:.1f}s)</div>
             <div style='padding:10px; border-left: 4px solid {h_status_colors[1]}; margin-bottom: 5px;'><b>Step 2:</b> Human checks stock manually ({min(max(current_time-t_h_1, 0), p_h_stock * num_parts_2d):.1f}s / {p_h_stock * num_parts_2d:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {h_status_colors[2]}; margin-bottom: 5px;'><b>Step 3:</b> Search shelves (Stochastic routing) ({min(max(current_time-t_h_2, 0), p_h_search * num_parts_2d):.1f}s / {p_h_search * num_parts_2d:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {h_status_colors[3]}; margin-bottom: 5px;'><b>Step 4:</b> Human reads data manual to validate ({min(max(current_time-t_h_3, 0), p_h_val * num_parts_2d):.1f}s / {p_h_val * num_parts_2d:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {h_status_colors[4]}; margin-bottom: 5px;'><b>Step 5:</b> Human withdraws parts ({min(max(current_time-t_h_4, 0), 5 * num_parts_2d):.1f}s / {5 * num_parts_2d:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[2]}; margin-bottom: 5px;'><b>Step 3:</b> Search shelves (Stochastic routing) ({h_total_search:.1f}s / {p_h_search * num_parts_2d:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[3]}; margin-bottom: 5px;'><b>Step 4:</b> Human reads data manual to validate ({h_total_val:.1f}s / {p_h_val * num_parts_2d:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {h_status_colors[4]}; margin-bottom: 5px;'><b>Step 5:</b> Human withdraws parts ({h_total_with:.1f}s / {5 * num_parts_2d:.1f}s)</div>
             <h4>Total Legacy Elapsed: <span style='color:blue'>{min(current_time, t_h_5):.1f} sec</span></h4>
             """
             human_blocks_ui.markdown(h_blocks_markdown, unsafe_allow_html=True)
 
             # -------------------------------------
-            # Robot Process State Machine & Display
+            # Robot Process Flow & Interleaved Logic
             # -------------------------------------
+            r_total_travel, r_total_qr, r_total_with = 0, 0, 0
+            time_in_field_r = max(0, current_time - t_r_2)
+            time_per_part_r = p_r_travel + p_r_qr + 2
+            
             r_x, r_y = base_loc
             r_status_colors = ["gray"] * 5
-            
+            r_picked_status = [False] * num_parts_2d
+
             if current_time <= t_r_1:
-                r_active_step = 0
                 r_status_colors[0] = "red"
             elif current_time <= t_r_2:
-                r_active_step = 1
+                r_status_colors[0] = "green"
                 r_status_colors[1] = "red"
-            elif current_time <= t_r_3:
-                r_active_step = 2
-                r_status_colors[2] = "red"
-                prog = (current_time - t_r_2) / (t_r_3 - t_r_2)
-                idx = int(prog * 99)
-                r_x, r_y = rx_path[idx], ry_path[idx]
-            elif current_time <= t_r_4:
-                r_active_step = 3
-                r_status_colors[3] = "red"
-                r_x, r_y = rx_path[-1], ry_path[-1]
             else:
-                r_active_step = 4
-                r_status_colors[4] = "green"
-                r_x, r_y = rx_path[-1], ry_path[-1]
-
-            for i in range(r_active_step): r_status_colors[i] = "green"
+                r_status_colors[0] = "green"
+                r_status_colors[1] = "green"
+                
+                if current_time >= t_r_5:
+                    r_status_colors = ["green"] * 5
+                    r_x, r_y = r_targets[-1]
+                    r_picked_status = [True] * num_parts_2d
+                    r_total_travel = p_r_travel * num_parts_2d
+                    r_total_qr = p_r_qr * num_parts_2d
+                    r_total_with = 2 * num_parts_2d
+                else:
+                    idx_r = int(time_in_field_r // time_per_part_r)
+                    part_time_r = time_in_field_r % time_per_part_r
+                    
+                    r_total_travel = idx_r * p_r_travel
+                    r_total_qr = idx_r * p_r_qr
+                    r_total_with = idx_r * 2
+                    
+                    for i in range(idx_r): r_picked_status[i] = True
+                    
+                    prev_loc = base_loc if idx_r == 0 else r_targets[idx_r - 1]
+                    curr_loc = r_targets[idx_r]
+                    
+                    if part_time_r <= p_r_travel:
+                        r_status_colors[2] = "red"
+                        r_total_travel += part_time_r
+                        
+                        prog = part_time_r / p_r_travel
+                        r_x = prev_loc[0] + (curr_loc[0] - prev_loc[0]) * prog
+                        r_y = prev_loc[1] + (curr_loc[1] - prev_loc[1]) * prog
+                    elif part_time_r <= p_r_travel + p_r_qr:
+                        r_status_colors[2] = "green"
+                        r_status_colors[3] = "red"
+                        r_total_travel += p_r_travel
+                        r_total_qr += (part_time_r - p_r_travel)
+                        r_x, r_y = curr_loc
+                    else:
+                        r_status_colors[2] = "green"
+                        r_status_colors[3] = "green"
+                        r_status_colors[4] = "red"
+                        r_total_travel += p_r_travel
+                        r_total_qr += p_r_qr
+                        r_total_with += (part_time_r - p_r_travel - p_r_qr)
+                        r_x, r_y = curr_loc
+                        if part_time_r >= time_per_part_r - 0.1: r_picked_status[idx_r] = True
 
             r_blocks_markdown = f"""
             <div style='padding:10px; border-left: 4px solid {r_status_colors[0]}; margin-bottom: 5px;'><b>Step 1:</b> Instant signal sent to R2G ({min(current_time, t_r_1):.1f}s / {t_r_1:.1f}s)</div>
             <div style='padding:10px; border-left: 4px solid {r_status_colors[1]}; margin-bottom: 5px;'><b>Step 2:</b> R2G receives task & calculates TSP route ({min(max(current_time-t_r_1, 0), p_r_calc):.1f}s / {p_r_calc:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {r_status_colors[2]}; margin-bottom: 5px;'><b>Step 3:</b> R2G traveling direct to locations ({min(max(current_time-t_r_2, 0), p_r_travel * num_parts_2d):.1f}s / {p_r_travel * num_parts_2d:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {r_status_colors[3]}; margin-bottom: 5px;'><b>Step 4:</b> R2G validates parts with QR code ({min(max(current_time-t_r_3, 0), p_r_qr * num_parts_2d):.1f}s / {p_r_qr * num_parts_2d:.1f}s)</div>
-            <div style='padding:10px; border-left: 4px solid {r_status_colors[4]}; margin-bottom: 5px;'><b>Step 5:</b> R2G withdraws parts ({min(max(current_time-t_r_4, 0), 2 * num_parts_2d):.1f}s / {2 * num_parts_2d:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[2]}; margin-bottom: 5px;'><b>Step 3:</b> R2G traveling direct to locations ({r_total_travel:.1f}s / {p_r_travel * num_parts_2d:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[3]}; margin-bottom: 5px;'><b>Step 4:</b> R2G validates parts with QR code ({r_total_qr:.1f}s / {p_r_qr * num_parts_2d:.1f}s)</div>
+            <div style='padding:10px; border-left: 4px solid {r_status_colors[4]}; margin-bottom: 5px;'><b>Step 5:</b> R2G withdraws parts ({r_total_with:.1f}s / {2 * num_parts_2d:.1f}s)</div>
             <h4>Total R2G Elapsed: <span style='color:red'>{min(current_time, t_r_5):.1f} sec</span></h4>
             """
             robot_blocks_ui.markdown(r_blocks_markdown, unsafe_allow_html=True)
 
-            # Update Trails if still moving
+            # Tracking Trail Coordinates
             if current_time <= t_h_5:
                 h_trail_x.append(h_x)
                 h_trail_y.append(h_y)
@@ -733,25 +786,26 @@ with tab9:
 
             # Background Shelves
             x_grid, y_grid = np.meshgrid(range(0, 20, 2), range(0, 20, 2))
-            fig.add_trace(go.Scatter(x=x_grid.flatten(), y=y_grid.flatten(), mode='markers', marker=dict(color='lightgray', size=4, symbol='square'), name='Shelves'))
+            fig.add_trace(go.Scatter(x=x_grid.flatten(), y=y_grid.flatten(), mode='markers', marker=dict(color='lightgray', size=4, symbol='square'), name='Shelves', hoverinfo='skip'))
 
             # Trails
-            fig.add_trace(go.Scatter(x=h_trail_x, y=h_trail_y, mode='lines', line=dict(color='blue', dash='dot', width=2), opacity=0.5, name='Human Path'))
-            fig.add_trace(go.Scatter(x=r_trail_x, y=r_trail_y, mode='lines', line=dict(color='red', width=3), opacity=0.5, name='Robot Path'))
+            fig.add_trace(go.Scatter(x=h_trail_x, y=h_trail_y, mode='lines', line=dict(color='blue', dash='dot', width=2), opacity=0.5, name='Human Path', hoverinfo='skip'))
+            fig.add_trace(go.Scatter(x=r_trail_x, y=r_trail_y, mode='lines', line=dict(color='red', width=3), opacity=0.5, name='Robot Path', hoverinfo='skip'))
 
             # Anchor Locations
             fig.add_trace(go.Scatter(x=[2], y=[2], mode='markers+text', text=['Office/Base'], textposition='bottom right', marker=dict(size=15, color='orange', symbol='square'), name='Base'))
             
-            # Dynamic Target Shelves
-            fig.add_trace(go.Scatter(
-                x=[t[0] for t in target_coords], 
-                y=[t[1] for t in target_coords], 
-                mode='markers+text', 
-                text=[f"P{i+1}" for i in range(num_parts_2d)], 
-                textposition='top left', 
-                marker=dict(size=12, color='purple', symbol='star', line=dict(color='black', width=1)), 
-                name='Target Parts'
-            ))
+            # Draw Dynamic Target Shelves (Human parts offset slightly for visual clarity)
+            hx_t = [p[0] - 0.2 for p in h_targets]
+            hy_t = [p[1] + 0.2 for p in h_targets]
+            h_c = ["#00cc96" if picked else "blue" for picked in h_picked_status] # Green if picked, Blue if pending
+            fig.add_trace(go.Scatter(x=hx_t, y=hy_t, mode='markers', marker=dict(color=h_c, size=10, symbol='square', line=dict(color='black', width=1)), name='Human Targets'))
+
+            # Draw Dynamic Target Shelves (Robot parts offset slightly for visual clarity)
+            rx_t = [p[0] + 0.2 for p in r_targets]
+            ry_t = [p[1] - 0.2 for p in r_targets]
+            r_c = ["#00cc96" if picked else "red" for picked in r_picked_status] # Green if picked, Red if pending
+            fig.add_trace(go.Scatter(x=rx_t, y=ry_t, mode='markers', marker=dict(color=r_c, size=12, symbol='star', line=dict(color='black', width=1)), name='Robot Targets'))
 
             # Moving Entities
             fig.add_trace(go.Scatter(x=[h_x], y=[h_y], mode='markers+text', text=['🚶‍♂️'], textposition='top center', marker=dict(size=24, color='blue'), name='Human'))
@@ -767,8 +821,8 @@ with tab9:
             
             map_ph.plotly_chart(fig, use_container_width=True, key=f"sim2d_map_{frame}")
             
-            # Simulation playback controller
-            time.sleep(0.5 / sim_speed_2d) 
+            # Simulation Speed Output Sleep
+            time.sleep((max_sim_time / frames) / sim_speed_2d)
         
         # -------------------------------------
         # Final KPI Comparison Dashboard
